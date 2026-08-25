@@ -1,0 +1,7 @@
+{
+  "task_id": "bug_fix_add",
+  "repository": "repo",
+  "instruction": "Fix add() so it returns the sum of two integers. Do not change tests.",
+  "expected_result": "pytest passes",
+  "test_command": "python -m pytest -q"
+}

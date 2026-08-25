@@ -1,0 +1,7 @@
+{
+  "task_id": "refactor_area",
+  "repository": "repo",
+  "instruction": "Refactor geometry.py to add a helper rect_area(w, h) and use it in both public functions. Keep behavior identical.",
+  "expected_result": "pytest still passes after refactor",
+  "test_command": "python -m pytest -q"
+}

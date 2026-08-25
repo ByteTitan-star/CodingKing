@@ -1,0 +1,7 @@
+{
+  "task_id": "feature_add_greet",
+  "repository": "repo",
+  "instruction": "Implement greet(name: str) -> str in greet.py returning 'hello, {name}'. Do not change tests.",
+  "expected_result": "pytest passes",
+  "test_command": "python -m pytest -q"
+}

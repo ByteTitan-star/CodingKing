@@ -152,10 +152,14 @@ def write_reports(
                 f"- test_pass: {row.test_pass}",
                 f"- iterations: {row.iterations}",
                 f"- tool_calls: {row.tool_calls}",
+                f"- repair_used: {row.repair_used}",
                 f"- repair_count: {row.repair_count}",
                 f"- model: {row.model}",
                 f"- changed_files: {', '.join(row.changed_files) or '(none)'}",
+                f"- first_test_result: {row.first_test_result[:500] if row.first_test_result else '(none)'}",  # noqa: E501
+                f"- final_test_result: {row.final_test_result[:500] if row.final_test_result else '(none)'}",  # noqa: E501
                 f"- tokens: {row.prompt_tokens} / {row.completion_tokens}",
+                f"- error: {row.error or '(none)'}",
                 "",
                 "```diff",
                 (row.diff or "(no diff)")[:8000],

@@ -1,6 +1,6 @@
 # CoderKing eval report (`phase1-report`)
 
-Generated: 2026-08-25T05:40:28.141375+00:00
+Generated: 2026-08-25T07:57:36.958916+00:00
 
 ## Summary
 

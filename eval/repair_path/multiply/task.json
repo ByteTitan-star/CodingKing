@@ -1,0 +1,8 @@
+{
+  "task_id": "repair_path_multiply",
+  "repository": "repo",
+  "instruction": "Keep multiply(a, b) returning the product of two integers. Do not change tests.",
+  "expected_result": "pytest passes after repair",
+  "test_command": "python -m pytest -q",
+  "mode": "repair_fault_injection"
+}

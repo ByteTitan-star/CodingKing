@@ -9,6 +9,7 @@ def test_yaml_then_env_then_cli(tmp_path: Path, monkeypatch) -> None:  # noqa: A
     )
     monkeypatch.delenv("CODERKING_MODEL", raising=False)
     monkeypatch.delenv("CODERKING_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("CODERKING_OPENAI_API_KEY", raising=False)
     settings = load_settings(workspace=tmp_path)
     assert settings.model == "from-yaml"
     monkeypatch.setenv("CODERKING_MODEL", "from-env")

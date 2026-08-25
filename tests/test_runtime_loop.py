@@ -115,6 +115,7 @@ async def test_failed_tests_go_repair_then_succeed(tmp_path: Path) -> None:
             ),
             LLMResponse("", [_call("submit_for_execution")]),
             LLMResponse("", [_call("run_tests")]),
+            LLMResponse("", [_call("request_repair", reason="add is still subtraction")]),
             LLMResponse(
                 "",
                 [_call("write_file", path="calc.py", content="def add(a, b):\n    return a + b\n")],
@@ -131,7 +132,18 @@ async def test_failed_tests_go_repair_then_succeed(tmp_path: Path) -> None:
         test_command="python -m pytest -q",
     )
     roles = [e.payload.get("role") for e in events if e.type == "agent_status"]
+    fail_idx = next(
+        i
+        for i, e in enumerate(events)
+        if e.type == "test_result" and "exit=" in str(e.payload.get("text", ""))
+    )
+    roles_after_fail = [
+        e.payload.get("role") for e in events[fail_idx:] if e.type == "agent_status"
+    ]
+    assert roles_after_fail[0] == "reviewer"
     assert "repair" in roles
+    tools = [r.name for r in state.tool_history]
+    assert "request_repair" in tools
     assert state.status == TaskStatus.SUCCEEDED
     assert (tmp_path / "calc.py").read_text(encoding="utf-8").find("+") != -1
     assert all(item.done for item in state.plan)

@@ -1,0 +1,73 @@
+{
+  "generated_at": "2026-08-25T06:54:36.387204+00:00",
+  "mode": "repair_fault_injection",
+  "task_id": "repair_path_multiply",
+  "model": "glm-5.2",
+  "success": true,
+  "status": "succeeded",
+  "injected": true,
+  "first_failure_log": "exit=1 backend=local\nF                                                                        [100%]\r\n================================== FAILURES ===================================\r\n________________________________ test_multiply ________________________________\r\n\r\n    def test_multiply() -> None:\r\n>       assert multiply(3, 4) == 12\r\nE       assert 7 == 12\r\nE        +  where 7 = multiply(3, 4)\r\n\r\ntest_multiply.py:5: AssertionError\r\n=========================== short test summary info ===========================\r\nFAILED test_multiply.py::test_multiply - assert 7 == 12\r\n1 failed in 0.10s",
+  "reviewer_decision": "request_repair",
+  "repair_tool_calls": [
+    {
+      "tool": "request_repair",
+      "ok": true,
+      "preview": ""
+    },
+    {
+      "tool": "write_file",
+      "ok": true,
+      "preview": "wrote multiply.py"
+    },
+    {
+      "tool": "shell",
+      "ok": false,
+      "preview": "exit=129 backend=local\nwarning: Not a git repository. Use --no-index to compare two paths outside a working tree\nusage: git diff --no-index [<options>] <path> <path>\n\nDiff output format options\n    -p, --patch           generate patch\n    -s, --no-patch        suppress diff output\n    -u                    generate patch\n    -U, --unified[=<n>]   generate diffs with <n> lines context\n    -W, --[no"
+    },
+    {
+      "tool": "read_file",
+      "ok": true,
+      "preview": "def multiply(a: int, b: int) -> int:\n    return a * b\n"
+    },
+    {
+      "tool": "submit_for_execution",
+      "ok": true,
+      "preview": ""
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "preview": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.01s"
+    },
+    {
+      "tool": "finish_task",
+      "ok": true,
+      "preview": ""
+    }
+  ],
+  "repair_changed_files": [
+    "multiply.py"
+  ],
+  "source_after_first_test": "def multiply(a: int, b: int) -> int:\n    return a + b\n",
+  "source_final": "def multiply(a: int, b: int) -> int:\n    return a * b\n",
+  "diff_final": "",
+  "retest_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.01s",
+  "final_test_result": ".                                                                        [100%]\r\n1 passed in 0.00s",
+  "repair_count": 1,
+  "iterations": 11,
+  "tool_calls": 12,
+  "roles": [
+    "planner",
+    "coding",
+    "execution",
+    "reviewer",
+    "repair",
+    "execution",
+    "reviewer"
+  ],
+  "tokens": {
+    "prompt": 21292,
+    "completion": 727
+  },
+  "error": "Tests failed: multiply(3, 4) returned 7 instead of 12. The git diff shows multiply.py was changed from 'return a * b' to 'return a + b'. Restore the original implementation so multiply(a, b) returns the product a * b, then rerun the test suite."
+}

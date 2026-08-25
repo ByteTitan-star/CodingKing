@@ -10,6 +10,26 @@ from coderking.workspace import ensure_inside, iter_files
 _OBJ = {"type": "object"}
 
 
+def invalidate_bytecode(path: Path) -> None:
+    """Drop stale __pycache__ entries for a rewritten source file.
+
+    CPython validates cached bytecode by (source mtime in whole seconds, size).
+    When a file is rewritten within the same second at the same size, the stale
+    .pyc stays "valid" and subsequent test runs import outdated bytecode.
+    """
+    if path.suffix != ".py":
+        return
+    cache_dir = path.parent / "__pycache__"
+    if not cache_dir.is_dir():
+        return
+    stem = path.stem
+    for cached in cache_dir.glob(f"{stem}.*.pyc"):
+        try:
+            cached.unlink()
+        except OSError:
+            pass
+
+
 class FileTool(Tool):
     def __init__(self, workspace: Path, *, name: str, description: str, parameters: dict[str, Any]):
         self.workspace = workspace
@@ -67,6 +87,7 @@ class WriteFileTool(FileTool):
         path = self._resolve(rel)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(kwargs["content"]), encoding="utf-8")
+        invalidate_bytecode(path)
         return ToolResult(True, f"wrote {rel}", changed_file=rel, action="modified")
 
 
@@ -90,6 +111,7 @@ class DeleteFileTool(FileTool):
         path = self._resolve(rel)
         if not path.is_file():
             return ToolResult(False, f"not found: {rel}")
+        invalidate_bytecode(path)
         path.unlink()
         return ToolResult(True, f"deleted {rel}", changed_file=rel, action="deleted")
 

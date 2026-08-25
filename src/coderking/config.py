@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -95,12 +95,17 @@ def load_settings(workspace: Path | None = None, **overrides: object) -> Setting
         if overrides.get("workspace")
         else (workspace.resolve() if workspace is not None else Path.cwd())
     )
-    load_dotenv(root / ".env")
-    load_dotenv(Path.cwd() / ".env")
+    # Read .env into a dict. Do not mutate os.environ, or tests cannot isolate
+    # and later load_dotenv() would re-inject secrets after monkeypatch.delenv.
+    file_env = {
+        key: value for key, value in dotenv_values(root / ".env").items() if value not in (None, "")
+    }
     data: dict[str, Any] = {"workspace": root}
     data.update(read_yaml_config(root))
     for field, env_name in ENV_MAP.items():
         if env_name in os.environ and os.environ[env_name] != "":
             data[field] = os.environ[env_name]
+        elif env_name in file_env:
+            data[field] = file_env[env_name]
     data.update({k: v for k, v in overrides.items() if v is not None})
     return Settings.model_validate(data)

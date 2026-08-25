@@ -65,6 +65,8 @@ function DiffView({ diff }: { diff: string }) {
 export default function App() {
   const [prompt, setPrompt] = useState("Fix the failing unit tests in this repository.");
   const [repository, setRepository] = useState(".");
+  const [testCommand, setTestCommand] = useState("python -m pytest -q");
+  const [autoApprove, setAutoApprove] = useState(true);
   const [task, setTask] = useState<TaskView | null>(null);
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [files, setFiles] = useState<string[]>([]);
@@ -142,7 +144,10 @@ export default function App() {
         event.type === "file_change" ||
         event.type === "done" ||
         event.type === "agent_status" ||
-        event.type === "plan_update"
+        event.type === "plan_update" ||
+        event.type === "token_usage" ||
+        event.type === "test_result" ||
+        event.type === "tool_call"
       ) {
         void refreshTask(id);
         void loadTree(id);
@@ -160,7 +165,12 @@ export default function App() {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, repository, auto_approve: false }),
+        body: JSON.stringify({
+          prompt,
+          repository,
+          auto_approve: autoApprove,
+          test_command: testCommand || null,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const created = (await res.json()) as TaskView;
@@ -178,7 +188,9 @@ export default function App() {
   async function act(path: string) {
     if (!task) return;
     await fetch(`/api/tasks/${task.task_id}/${path}`, { method: "POST" });
-    if (path === "rollback" || path === "accept") await refreshTask(task.task_id);
+    if (path === "rollback" || path === "accept" || path === "interrupt") {
+      await refreshTask(task.task_id);
+    }
     if (path === "approve" || path === "reject") setHitl(null);
   }
 
@@ -202,11 +214,11 @@ export default function App() {
           </div>
           <div>
             <dt className="text-xs uppercase text-slate-500">Status</dt>
-            <dd>{task ? STATUS_LABEL[task.status] ?? task.status : "空闲"}</dd>
+            <dd data-testid="task-status">{task ? STATUS_LABEL[task.status] ?? task.status : "空闲"}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase text-slate-500">Role</dt>
-            <dd>{task?.role ?? "—"}</dd>
+            <dd data-testid="task-role">{task?.role ?? "—"}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase text-slate-500">Sandbox</dt>
@@ -225,6 +237,7 @@ export default function App() {
               仓库路径
               <input
                 id="repo"
+                data-testid="repo-input"
                 className="mt-1 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
                 value={repository}
                 onChange={(e) => setRepository(e.target.value)}
@@ -234,14 +247,36 @@ export default function App() {
               任务
               <textarea
                 id="prompt"
+                data-testid="prompt-input"
                 className="mt-1 min-h-24 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
               />
             </label>
+            <label className="block text-sm" htmlFor="test-command">
+              测试命令
+              <input
+                id="test-command"
+                data-testid="test-command-input"
+                className="mt-1 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
+                value={testCommand}
+                onChange={(e) => setTestCommand(e.target.value)}
+              />
+            </label>
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm" htmlFor="auto-approve">
+              <input
+                checked={autoApprove}
+                data-testid="auto-approve"
+                id="auto-approve"
+                onChange={(e) => setAutoApprove(e.target.checked)}
+                type="checkbox"
+              />
+              自动批准危险操作
+            </label>
             <div className="flex flex-wrap gap-2">
               <button
                 className="min-h-11 cursor-pointer rounded-md bg-amber-300 px-4 font-medium text-black disabled:opacity-50"
+                data-testid="create-task"
                 disabled={busy}
                 type="submit"
               >
@@ -249,6 +284,7 @@ export default function App() {
               </button>
               <button
                 className="min-h-11 cursor-pointer rounded-md border border-white/20 px-3"
+                data-testid="stop-task"
                 disabled={!task}
                 onClick={() => void act("interrupt")}
                 type="button"
@@ -317,7 +353,7 @@ export default function App() {
               ))}
             </ul>
             <h3 className="mt-6 text-xs uppercase tracking-wider text-slate-500">Agent Activity</h3>
-            <ol className="mt-2 space-y-2 font-mono text-xs text-slate-300">
+            <ol className="mt-2 space-y-2 font-mono text-xs text-slate-300" data-testid="activity">
               {events
                 .filter((e) => e.type === "agent_status" || e.type === "tool_call")
                 .map((event, i) => (
@@ -355,14 +391,16 @@ export default function App() {
                 {fileContent || "选择文件查看内容。"}
               </pre>
             </div>
+            <div className="min-h-0 overflow-auto" data-testid="diff-view">
             <DiffView diff={diff} />
+            </div>
           </div>
         </section>
 
         <section className="flex min-h-0 flex-col">
           <h2 className="px-4 py-2 text-xs uppercase tracking-wider text-slate-500">Runtime</h2>
           <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-            <div className="rounded-md border border-white/10 bg-[#12151c] p-3 text-sm">
+            <div className="rounded-md border border-white/10 bg-[#12151c] p-3 text-sm" data-testid="runtime-stats">
               Role: {task?.role ?? "—"}
               <br />
               Iteration: {task?.iteration ?? 0}
@@ -374,11 +412,11 @@ export default function App() {
               Tokens: {task ? `${task.tokens.prompt} / ${task.tokens.completion}` : "0 / 0"}
             </div>
             <h3 className="mt-4 text-xs uppercase tracking-wider text-slate-500">Terminal</h3>
-            <pre className="mt-2 min-h-40 overflow-auto rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-6">
+            <pre className="mt-2 min-h-40 overflow-auto rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-6" data-testid="terminal">
               {terminal || "等待 Sandbox 输出…"}
             </pre>
             <h3 className="mt-4 text-xs uppercase tracking-wider text-slate-500">Test Result</h3>
-            <pre className="mt-2 overflow-auto font-mono text-xs">
+            <pre className="mt-2 overflow-auto font-mono text-xs" data-testid="test-result">
               {pytestHeadline(task?.test_results || "")}
               {task?.test_results ? `\n\n${task.test_results}` : ""}
             </pre>

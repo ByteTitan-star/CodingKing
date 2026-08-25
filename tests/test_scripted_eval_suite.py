@@ -90,7 +90,7 @@ def _scripts(task_id: str) -> list[LLMResponse]:
 
 
 @pytest.mark.asyncio
-async def test_scripted_eval_suite_writes_reports() -> None:
+async def test_scripted_eval_suite_writes_reports(tmp_path: Path) -> None:
     settings = Settings(openai_api_key="x", sandbox_mode="local", max_iterations=16)
     results = []
     for task, task_dir in discover_tasks(ROOT / "eval" / "tasks"):
@@ -98,9 +98,10 @@ async def test_scripted_eval_suite_writes_reports() -> None:
         results.append(await run_eval_task(task, task_dir, settings, llm))
     assert {row.category for row in results} >= {"bug_fix", "feature_add", "refactor"}
     assert all(row.test_pass for row in results)
+    out = tmp_path / "reports"
     write_reports(
         results,
-        ROOT / "eval" / "reports",
+        out,
         extra={
             "llm": "scripted fixture (no live API key in this environment)",
             "docker_unit": "see tests/test_docker.py",
@@ -108,7 +109,7 @@ async def test_scripted_eval_suite_writes_reports() -> None:
     )
     write_reports(
         results,
-        ROOT / "eval" / "reports",
+        out,
         stem="phase1-report",
         extra={"llm": "scripted fixture (no live API key in this environment)"},
     )

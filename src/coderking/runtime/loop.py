@@ -35,6 +35,7 @@ from coderking.tools.shell import ShellTool
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
+WrapToolsFn = Callable[[dict[str, Any]], None]
 
 
 class AgentRuntime:
@@ -60,6 +61,7 @@ class AgentRuntime:
         approve: ApprovalFn | None = None,
         auto_approve: bool = False,
         test_command: str | None = None,
+        wrap_tools: WrapToolsFn | None = None,
         state: AgentState | None = None,
     ) -> AgentState:
         workspace = workspace.resolve()
@@ -79,6 +81,8 @@ class AgentRuntime:
             tools["run_tests"] = RunTestsTool(
                 sandbox, self.settings.sandbox_timeout_sec, default_command=test_command
             )
+        if wrap_tools:
+            wrap_tools(tools)
         summary = scan_repository(workspace)
         try:
             index = BM25Index(workspace)
@@ -265,8 +269,14 @@ class AgentRuntime:
                         }
                     )
                 else:
-                    state.repair_count += 1
-                    await self._switch_role(state, Role.REPAIR, on_event)
+                    await self._switch_role(state, Role.REVIEWER, on_event)
+                    state.messages.append(
+                        {
+                            "role": "system",
+                            "content": _reviewer_context(state, workspace)
+                            + "\nTests FAILED. Call request_repair. Do not call finish_task.",
+                        }
+                    )
             if result.changed_file:
                 state.mark_file(result.changed_file)
                 await on_event(file_event(result.changed_file, result.action or "modified"))

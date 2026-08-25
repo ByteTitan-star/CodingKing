@@ -24,6 +24,8 @@ def test_cli_help() -> None:
 def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("CODERKING_MODEL", raising=False)
+    monkeypatch.delenv("CODERKING_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("CODERKING_OPENAI_API_KEY", raising=False)
     init = runner.invoke(app, ["init", "--workspace", str(tmp_path)])
     assert init.exit_code == 0
     assert (tmp_path / ".coderking" / "config.yaml").is_file()

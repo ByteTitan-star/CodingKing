@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-08-25T06:55:14.934044+00:00",
+  "mode": "web_browser_e2e",
+  "base_url": "http://localhost:5173",
+  "checks": {
+    "page_open": true,
+    "create_and_finish": true,
+    "plan_or_activity": true,
+    "roles": true,
+    "tool_trace": true,
+    "terminal": true,
+    "test_result": true,
+    "diff_plus_minus": true,
+    "changed_files": true,
+    "tokens_iteration": true,
+    "final_role": true,
+    "stop_status": true,
+    "stop_no_late_write": true
+  },
+  "notes": [
+    "coding_status=已完成",
+    "roles_ok=True",
+    "stop_status=已中断"
+  ],
+  "passed": true
+}

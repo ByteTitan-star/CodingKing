@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-08-25T05:56:57.867481+00:00",
+  "summary": {
+    "task_success_rate": 1.0,
+    "test_pass_rate": 1.0,
+    "repair_success_rate": 0.0,
+    "avg_iterations": 6.0,
+    "avg_tool_calls": 7.0,
+    "token_usage": 4970.0
+  },
+  "extra": {
+    "llm": "live openai-compatible",
+    "model": "glm-5.2",
+    "endpoint_host": "open.bigmodel.cn/api/coding/paas/v4",
+    "sandbox_mode": "local",
+    "scripted": false
+  },
+  "results": [
+    {
+      "task_id": "bug_fix_add",
+      "category": "bug_fix",
+      "success": true,
+      "test_pass": true,
+      "iterations": 6,
+      "repair_used": false,
+      "repair_count": 0,
+      "tool_calls": 7,
+      "prompt_tokens": 4562,
+      "completion_tokens": 408,
+      "changed_files": [
+        "calc.py"
+      ],
+      "first_test_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.03s",
+      "final_test_result": ".                                                                        [100%]\r\n1 passed in 0.01s",
+      "diff": "--- calc.py\n+++ calc.py\n@@ -1,2 +1,2 @@\n def add(a: int, b: int) -> int:\n-    return a - b\n+    return a + b\n",
+      "error": "",
+      "model": "glm-5.2"
+    }
+  ]
+}

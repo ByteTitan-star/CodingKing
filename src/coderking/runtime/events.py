@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from coderking.runtime.state import Role, TaskStatus
+
+
+@dataclass
+class AgentEvent:
+    type: str
+    payload: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["payload"] = self.payload
+        return data
+
+
+def status_event(role: Role, status: TaskStatus) -> AgentEvent:
+    return AgentEvent("agent_status", {"role": role.value, "status": status.value})
+
+
+def tool_event(name: str, status: str, **extra: Any) -> AgentEvent:
+    return AgentEvent("tool_call", {"tool": name, "status": status, **extra})
+
+
+def file_event(path: str, action: str) -> AgentEvent:
+    return AgentEvent("file_change", {"file": path, "action": action})
+
+
+def plan_event(items: list[dict[str, Any]]) -> AgentEvent:
+    return AgentEvent("plan_update", {"plan": items})
+
+
+def terminal_event(text: str) -> AgentEvent:
+    return AgentEvent("terminal", {"text": text})
+
+
+def test_event(text: str) -> AgentEvent:
+    return AgentEvent("test_result", {"text": text})
+
+
+def sandbox_event(backend: str, status: str, **extra: Any) -> AgentEvent:
+    return AgentEvent("sandbox_status", {"backend": backend, "status": status, **extra})
+
+
+def approval_event(reason: str, tool: str, arguments: dict[str, Any]) -> AgentEvent:
+    return AgentEvent(
+        "approval_required",
+        {"reason": reason, "tool": tool, "arguments": arguments},
+    )
+
+
+def done_event(ok: bool, summary: str) -> AgentEvent:
+    return AgentEvent("done", {"ok": ok, "summary": summary})
+
+
+def error_event(message: str) -> AgentEvent:
+    return AgentEvent("error", {"message": message})
+
+
+def token_event(prompt: int, completion: int) -> AgentEvent:
+    return AgentEvent("token_usage", {"prompt": prompt, "completion": completion})

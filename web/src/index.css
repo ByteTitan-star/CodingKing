@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0b0d12;
+  color: #e7ecf3;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid #f5c16c;
+  outline-offset: 2px;
+}

@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from coderking import __version__
+from coderking.controller import CONTROLLER, TaskController
+from coderking.workspace import iter_files
+
+
+def _web_dist() -> Path:
+    here = Path(__file__).resolve()
+    candidates = [here.parents[3] / "web" / "dist", Path.cwd() / "web" / "dist"]
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
+class TaskCreate(BaseModel):
+    prompt: str
+    repository: str | None = None
+    auto_approve: bool = False
+    test_command: str | None = None
+
+
+class ApprovalBody(BaseModel):
+    allowed: bool = Field(..., alias="allowed")
+
+    model_config = {"populate_by_name": True}
+
+
+def create_app(controller: TaskController | None = None) -> FastAPI:
+    ctrl = controller or CONTROLLER
+    app = FastAPI(title="CoderKing", version=__version__)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.get("/api/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok", "version": __version__}
+
+    @app.post("/api/tasks")
+    async def create_task(body: TaskCreate) -> dict:
+        workspace = Path(body.repository).resolve() if body.repository else None
+        task = await ctrl.create_task(
+            body.prompt,
+            workspace,
+            auto_approve=body.auto_approve,
+            test_command=body.test_command,
+        )
+        return ctrl.public_task(task.state.task_id)
+
+    @app.get("/api/tasks/{task_id}")
+    async def get_task(task_id: str) -> dict:
+        try:
+            return ctrl.public_task(task_id)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.get("/api/tasks/{task_id}/tree")
+    async def task_tree(task_id: str) -> dict:
+        try:
+            return {"files": ctrl.tree(task_id)}
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.get("/api/tasks/{task_id}/file")
+    async def task_file(task_id: str, path: str) -> dict:
+        try:
+            return {"path": path, "content": ctrl.read_file(task_id, path)}
+        except (KeyError, PermissionError, FileNotFoundError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/tasks/{task_id}/diff")
+    async def task_diff(task_id: str) -> dict:
+        try:
+            return {"diff": ctrl.diff(task_id)}
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.post("/api/tasks/{task_id}/rollback")
+    async def rollback(task_id: str) -> dict:
+        try:
+            ctrl.rollback(task_id)
+            return {"ok": True, "diff": ctrl.diff(task_id)}
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.post("/api/tasks/{task_id}/accept")
+    async def accept_patch(task_id: str) -> dict:
+        try:
+            return {"ok": True, "diff": ctrl.diff(task_id)}
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.get("/api/workspace/tree")
+    async def workspace_tree(root: str = ".") -> dict:
+        base = Path(root).resolve()
+        files = [p.relative_to(base).as_posix() for p in iter_files(base, max_files=500)]
+        return {"root": str(base), "files": files}
+
+    @app.post("/api/tasks/{task_id}/approve")
+    async def approve(task_id: str, body: ApprovalBody | None = None) -> dict:
+        allowed = True if body is None else body.allowed
+        try:
+            ctrl.resolve_approval(task_id, allowed)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        return {"ok": True}
+
+    @app.post("/api/tasks/{task_id}/reject")
+    async def reject(task_id: str) -> dict:
+        try:
+            ctrl.resolve_approval(task_id, False)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        return {"ok": True}
+
+    @app.post("/api/tasks/{task_id}/interrupt")
+    async def interrupt(task_id: str) -> dict:
+        try:
+            ctrl.interrupt(task_id)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        return {"ok": True}
+
+    @app.websocket("/ws/tasks/{task_id}")
+    async def task_ws(websocket: WebSocket, task_id: str) -> None:
+        await websocket.accept()
+        try:
+            task = ctrl.get(task_id)
+        except KeyError:
+            await websocket.send_json({"type": "error", "payload": {"message": "task not found"}})
+            await websocket.close()
+            return
+        for event in task.snapshot:
+            await websocket.send_json(event)
+        try:
+            async for event in ctrl.subscribe(task_id):
+                await websocket.send_json(event.as_dict())
+        except WebSocketDisconnect:
+            return
+        except KeyError:
+            await websocket.close()
+
+    dist = _web_dist()
+    if dist.is_dir():
+        app.mount("/", StaticFiles(directory=dist, html=True), name="web")
+    return app
+
+
+app = create_app()

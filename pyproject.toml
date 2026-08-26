@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coderking"
-version = "0.1.0"
+version = "1.0.1"
 description = "CoderKing：自研 ReAct + Reflection 的工程化 Coding Agent（CLI + Web）"
 readme = "README.md"
 requires-python = ">=3.12"

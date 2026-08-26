@@ -1,7 +1,7 @@
 {
   "name": "coderking-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "CoderKing Electron shell",
   "main": "main.mjs",
   "scripts": {

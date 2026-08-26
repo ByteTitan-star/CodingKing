@@ -1,34 +1,47 @@
 # CoderKing
 
-自主 Coding Agent 运行时：用自然语言描述工程任务，在仓库里完成规划、改代码、沙箱执行、测试与修复。CLI 与 Web 共用同一套 Agent Runtime，对标 Codex / OpenHands 的工程闭环，而不是「再包一层聊天框」。
+<p align="center">
+  <a href="https://github.com/ByteTitan-star/CodingKing"><img src="https://img.shields.io/badge/CoderKing-v0.1.0-2563eb" alt="CoderKing v0.1.0" /></a>
+  <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/English-0A66C2" alt="English" />
+  <a href="./README_zh.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" /></a>
+</p>
 
-第一期是可运行的 MVP（方案 A：单仓 + Python Runtime + 独立 React 工作台），不是完整 SaaS。
+> Describe an engineering task in natural language — plan, edit code, run tests in a sandbox, and auto-repair until verification passes. One Agent Runtime powers both CLI and Web.
 
-## 命名约定（请按这个用）
+## What is CoderKing?
 
-产品名是 **CoderKing**。命令行、Python 包、环境变量一律用小写 `coderking`，避免 Windows / Linux 大小写不一致。
+CoderKing is an autonomous coding agent runtime for software engineering workflows. You describe a task in natural language; the agent plans the work, modifies the repository, executes commands in an isolated sandbox, runs tests, and enters a repair loop when verification fails — all through a single runtime shared by CLI and Web UI.
 
-| 用途 | 正确写法 | 不要写成 |
+Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a multi-tenant SaaS.
+
+## Agent workflow
+
+| Stage | Key action | Stage output |
 | --- | --- | --- |
-| 产品名 | CoderKing | AgentForge-Coder |
-| PyPI / import | `coderking` | `agentforge_coder` |
-| CLI | `coderking run "..."` | `CoderKing run` |
-| 本地配置目录 | `.coderking/` | `.CoderKing/` |
-| 环境变量前缀 | `CODERKING_` | `AGENTFORGE_` |
+| Task input | Describe a bug fix, feature, or refactor in CLI or Web. | A clear engineering brief |
+| Planning | Break the task into reviewable steps. | A structured task plan |
+| Coding | Read, search, and edit files in the workspace. | Patched source code |
+| Execution | Run shell commands and tests inside the sandbox. | Command and test output |
+| Review | Verify results against the plan and diff. | Pass / fail decision |
+| Repair | On test failure, diagnose and patch again. | A corrected implementation |
+| Delivery | Finish with diff summary; optional git commit with approval. | A completed task |
 
-设计文档里的 `CoderKing run` 是产品文案；安装后的可执行文件是 `coderking`。若要上 PyPI，请先确认 `coderking` 是否已被占用，占用则改发布名为 `coderking-agent`（import 仍可保持 `coderking`）。
+## Core features
 
-## 能力
+| Feature | Description |
+| --- | --- |
+| Unified runtime | CLI and Web call the same Agent Runtime — no duplicate orchestration logic. |
+| ReAct + reflection loop | Custom agent loop without LangChain / LangGraph dependencies. |
+| Role-based tools | Planner, Coding, Execution, Reviewer, and Repair roles with scoped tool access. |
+| Sandbox execution | Docker-first isolation; local process fallback for development only. |
+| Model-agnostic | OpenAI-compatible APIs — DeepSeek, GLM, Qwen, Ollama, and similar gateways. |
+| Human-in-the-loop | Dangerous operations require explicit approval unless `--yes` is set. |
+| Evaluation harness | Scripted tasks for `bug_fix`, `feature_add`, and `refactor`. |
+| Live observability | Web UI shows plan, tool trace, terminal output, diff, and sandbox status. |
 
-- 自研 ReAct + Reflection Loop（不依赖 LangChain / LangGraph）
-- 同一 Runtime 下的角色：Planner / Coding / Execution / Reviewer / Repair（prompt + 工具权限，不是多进程）
-- Tool Protocol：File / Shell / Git / Test + 计划/收尾元工具
-- Sandbox：Docker 为主；无 Docker 时 **local process 仅作 development fallback**，文档与事件里会标明，不当作强隔离
-- 多模型：统一 OpenAI Compatible（DeepSeek / GLM / Qwen / Ollama 换 `base_url` + 模型名即可）
-- CLI 与 Web 调同一 Runtime；Web 提供 Chat、Task Plan、Tool Trace、文件树、Terminal / Test / Sandbox 状态
-- `eval/tasks` 覆盖 `bug_fix`、`feature_add`、`refactor`
-
-## 架构
+## Architecture
 
 ```text
 User → CLI / Web UI → FastAPI + WebSocket
@@ -41,21 +54,20 @@ User → CLI / Web UI → FastAPI + WebSocket
               Tools → Sandbox → Workspace
 ```
 
-CLI 的 `coderking run` 默认 **进程内** 调用 Runtime（不必先起服务）。`coderking serve` 把同一 Runtime 暴露给 Web。这与「统一 Runtime」一致，而不是强迫本地开发先开 HTTP。
+`coderking run` invokes the runtime in-process (no HTTP server required). `coderking serve` exposes the same runtime to the Web UI.
 
-## 快速开始
+## Quick start
 
-要求：Python 3.12+，Node 22+（仅 Web），可选 Docker。
+**Requirements:** Python 3.12+, Node 22+ (Web only), Docker optional.
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-编辑 `.env`：
+Edit `.env`:
 
 ```env
 CODERKING_OPENAI_BASE_URL=https://api.deepseek.com/v1
@@ -68,20 +80,20 @@ CODERKING_SANDBOX_MODE=auto
 ### CLI
 
 ```bash
-python -m coderking init
-python -m coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
-python -m coderking run "修复当前仓库里失败的单元测试" --workspace .
-python -m coderking chat --workspace .
-python -m coderking status
-python -m coderking stop <task_id>
-python -m coderking eval --path eval/tasks --report-dir eval/reports
+coderking init
+coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
+coderking run "Fix failing unit tests in this repo" --workspace .
+coderking chat --workspace .
+coderking status
+coderking stop <task_id>
+coderking eval --path eval/tasks --report-dir eval/reports
 ```
 
-配置优先级：CLI 参数 > 环境变量 / `.env` > `.coderking/config.yaml` > 默认值。API Key 只走环境变量，不写入 yaml。
+Configuration priority: CLI flags → environment / `.env` → `.coderking/config.yaml` → defaults. API keys are read from the environment only and must not be committed.
 
-`pytest -q -m "not docker"` 跑普通单测。本机有 Docker 时再跑 `pytest tests/test_docker.py`。
+Run tests: `pytest -q -m "not docker"`. With Docker available: `pytest tests/test_docker.py`.
 
-危险操作（删文件、危险 shell、`git commit`）默认要确认。`--yes` 自动批准。`--commit` 才允许 Agent 提交。
+Use `--yes` to auto-approve dangerous operations. Use `--commit` to allow the agent to run `git commit`.
 
 ### Web
 
@@ -89,36 +101,28 @@ python -m coderking eval --path eval/tasks --report-dir eval/reports
 coderking serve --port 8000
 ```
 
-另开终端：
+In another terminal:
 
 ```bash
-cd web
-npm install
-npm run dev
+cd web && npm install && npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:5173`。生产构建 `npm run build` 后，若存在 `web/dist`，FastAPI 会一并托管静态资源。
+Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI serves `web/dist` when present.
 
-### 评测
+## Configuration
 
-```bash
-coderking eval --path eval/tasks
-```
-
-## 配置
-
-| 变量 | 含义 |
+| Variable | Description |
 | --- | --- |
-| `CODERKING_OPENAI_BASE_URL` | OpenAI Compatible 网关 |
-| `CODERKING_OPENAI_API_KEY` | API Key，勿提交进 Git |
-| `CODERKING_MODEL` | 模型名 |
-| `CODERKING_DISABLE_THINKING` | 关闭推理模型 thinking（默认 true）。官方 OpenAI 若 400，设为 false |
-| `CODERKING_SANDBOX_MODE` | `auto` / `docker` / `local` |
-| `CODERKING_ALLOW_COMMIT` | 是否允许 `git_commit` |
+| `CODERKING_OPENAI_BASE_URL` | OpenAI-compatible API base URL |
+| `CODERKING_OPENAI_API_KEY` | API key (never commit to Git) |
+| `CODERKING_MODEL` | Model name |
+| `CODERKING_DISABLE_THINKING` | Disable reasoning-model `thinking` field (default `true`) |
+| `CODERKING_SANDBOX_MODE` | `auto`, `docker`, or `local` |
+| `CODERKING_ALLOW_COMMIT` | Allow the `git_commit` tool |
 
-官方 OpenAI 不认识 `thinking` 字段时，客户端会自动去掉该字段重试一次。
+If the upstream API rejects the `thinking` field, the client strips it and retries once automatically.
 
-## 工程化
+## Development
 
 ```bash
 pre-commit install
@@ -128,19 +132,33 @@ ruff check src tests
 cd web && npm run lint && npm run build
 ```
 
-CI：`.github/workflows/ci.yml`（单测默认跳过 Docker 集成；另有 `docker-sandbox` job）。
+CI: `.github/workflows/ci.yml` (unit tests skip Docker by default; a separate `docker-sandbox` job runs Docker integration tests).
 
-## 仓库布局
+## Repository layout
 
 ```text
-src/coderking/     Python Runtime、CLI、API
-web/               React + Vite + Tailwind 工作台
-eval/tasks/        bug_fix / feature_add / refactor
-tests/             单测
+src/coderking/     Python runtime, CLI, and API
+web/               React + Vite workspace
+eval/tasks/        Evaluation scenarios
+tests/             Unit tests
+docs/              Design docs and acceptance checklist
 ```
 
-设计原文：`docs/CoderKing-Technical-Design.md`、`docs/CoderKing-WebUI-CLI-Design.md`。第一期明确不做：多租户、PostgreSQL/Redis/Milvus、Daytona、完整 SWE-bench。
+## Documentation
 
-## 简历表述（可直接用）
+- [Technical design](docs/CoderKing-Technical-Design.md)
+- [Web UI & CLI design](docs/CoderKing-WebUI-CLI-Design.md)
+- [Phase 1 acceptance](docs/phase1-acceptance.md)
 
-CoderKing：自研 Agent Loop 与 Tool Protocol 的 Coding Agent（CLI + Web）。第一期交付范围与验证结果见 `docs/phase1-acceptance.md`，不要把未勾选项写成已上线能力。
+## Naming
+
+| Use | Value |
+| --- | --- |
+| Product name | CoderKing |
+| Python package / CLI | `coderking` |
+| Config directory | `.coderking/` |
+| Environment prefix | `CODERKING_` |
+
+## License
+
+MIT © CodeTitan, 2026 — see [LICENSE](LICENSE).

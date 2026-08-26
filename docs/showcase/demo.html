@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoderKing Showcase Demo</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #0b0d12;
+        color: #e7ecf3;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .brand { color: #f5c16c; font-size: 12px; letter-spacing: 0.18em; }
+      .title { font-size: 18px; font-weight: 600; }
+      .meta { display: flex; gap: 24px; font-size: 13px; color: #94a3b8; }
+      .meta dt { font-size: 10px; text-transform: uppercase; color: #64748b; }
+      .grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1.4fr 1fr;
+        min-height: 720px;
+      }
+      section { border-right: 1px solid rgba(255, 255, 255, 0.1); padding: 8px 0; }
+      h2 {
+        margin: 0;
+        padding: 8px 16px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+      }
+      .panel { padding: 0 16px 12px; font-size: 13px; }
+      textarea, input {
+        width: 100%;
+        margin-top: 4px;
+        background: #12151c;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        color: #e7ecf3;
+        padding: 8px;
+        font: inherit;
+      }
+      textarea { min-height: 72px; resize: none; }
+      .btn {
+        margin-top: 8px;
+        margin-right: 8px;
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: none;
+        background: #f5c16c;
+        color: #000;
+        font-weight: 600;
+        cursor: default;
+      }
+      .plan li, .activity li { margin: 4px 0; }
+      .code-layout {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        min-height: 280px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .files { font-size: 12px; padding: 8px; }
+      .files .active { background: rgba(255, 255, 255, 0.1); border-radius: 4px; padding: 4px 8px; }
+      pre {
+        margin: 0;
+        padding: 16px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.6;
+        overflow: auto;
+      }
+      .diff .add { color: #6ee7b7; }
+      .diff .del { color: #fda4af; }
+      .diff .hunk { color: #7dd3fc; }
+      .terminal {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        margin-top: 8px;
+        padding: 12px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+      }
+      .stats {
+        background: #12151c;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        padding: 12px;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+    </style>
+  </head>
+  <body id="workspace-demo">
+    <header>
+      <div>
+        <div class="brand">CODERKING</div>
+        <div class="title">Engineering Workspace</div>
+      </div>
+      <dl class="meta">
+        <div><dt>Project</dt><dd>eval/bug_fix/add</dd></div>
+        <div><dt>Model</dt><dd>deepseek-chat</dd></div>
+        <div><dt>Status</dt><dd>运行中</dd></div>
+        <div><dt>Role</dt><dd>repair</dd></div>
+        <div><dt>Sandbox</dt><dd>local / active</dd></div>
+      </dl>
+    </header>
+    <div class="grid">
+      <section>
+        <h2>Chat / Task</h2>
+        <div class="panel">
+          <label>仓库路径<input value="eval/tasks/bug_fix/add/repo" readonly /></label>
+          <label>任务<textarea readonly>Fix add() so unit tests pass.</textarea></label>
+          <button class="btn" type="button">新建任务</button>
+          <h3 style="font-size:11px;color:#64748b;text-transform:uppercase">Plan</h3>
+          <ul class="plan">
+            <li>✓ analyze failing tests</li>
+            <li>✓ patch calc.py</li>
+            <li>○ run pytest</li>
+          </ul>
+          <h3 style="font-size:11px;color:#64748b;text-transform:uppercase">Agent Activity</h3>
+          <ol class="activity" style="font-family:ui-monospace,monospace;font-size:12px;color:#cbd5e1">
+            <li>planner</li>
+            <li>Tool: submit_plan</li>
+            <li>coding</li>
+            <li>Tool: write_file</li>
+            <li>execution</li>
+            <li>Tool: run_tests</li>
+            <li>repair</li>
+          </ol>
+        </div>
+      </section>
+      <section id="diff-demo">
+        <h2>Code Workspace</h2>
+        <div class="code-layout">
+          <div class="files">
+            <div class="active">calc.py ·</div>
+            <div style="padding:4px 8px">test_calc.py</div>
+          </div>
+          <pre>def add(a, b):
+    return a + b</pre>
+        </div>
+        <pre class="diff">
+<span class="hunk">@@ -1,2 +1,2 @@</span>
+ def add(a, b):
+<span class="del">-    return a - b</span>
+<span class="add">+    return a + b</span></pre>
+      </section>
+      <section>
+        <h2>Runtime</h2>
+        <div class="panel">
+          <div class="stats">
+            Role: repair<br />
+            Iteration: 4<br />
+            Sandbox: local / active<br />
+            Tokens: 2840 / 612
+          </div>
+          <h3 style="font-size:11px;color:#64748b;text-transform:uppercase">Terminal</h3>
+          <div class="terminal">$ python -m pytest -q
+<span style="color:#6ee7b7">1 passed</span> in 0.12s</div>
+          <h3 style="font-size:11px;color:#64748b;text-transform:uppercase">Test Result</h3>
+          <pre style="padding:0">1 passed</pre>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

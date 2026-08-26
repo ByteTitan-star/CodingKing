@@ -41,6 +41,29 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 | Evaluation harness | Scripted tasks for `bug_fix`, `feature_add`, and `refactor`. |
 | Live observability | Web UI shows plan, tool trace, terminal output, diff, and sandbox status. |
 
+## Product showcase
+
+### Repair loop in action
+
+![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
+
+A failing `add()` test triggers the Planner → Coding → Execution → Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
+
+### Unified diff
+
+![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
+
+Review exactly what changed before accepting or rolling back — same diff the Reviewer role uses to verify the fix.
+
+## Product interface
+
+| Engineering workspace | Diff & runtime |
+| --- | --- |
+| ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
+| Describe a task, watch the plan and agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
+
+Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `python scripts/capture_showcase.py` or replace assets after a live demo run.
+
 ## Architecture
 
 ```text
@@ -141,7 +164,7 @@ src/coderking/     Python runtime, CLI, and API
 web/               React + Vite workspace
 eval/tasks/        Evaluation scenarios
 tests/             Unit tests
-docs/              Design docs and acceptance checklist
+docs/              Design docs, showcase assets, and acceptance checklist
 ```
 
 ## Documentation

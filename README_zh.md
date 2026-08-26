@@ -41,6 +41,29 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 | 评测体系 | `eval/tasks` 覆盖 `bug_fix`、`feature_add`、`refactor`。 |
 | 可观测 | Web 展示计划、Tool Trace、终端输出、Diff 与 Sandbox 状态。 |
 
+## 产品展示
+
+### 修复循环实战
+
+![CoderKing 工作台 — bug 修复与 Repair 循环](docs/showcase/assets/product-workspace.png)
+
+`add()` 单测失败后，Agent 依次经过 Planner → Coding → Execution → Repair。工作台在同一视图展示计划、工具调用、改动文件与 pytest 输出。
+
+### 统一 Diff
+
+![CoderKing Diff 视图 — 修复后对比](docs/showcase/assets/product-diff.png)
+
+在接受或回滚前精确查看改动内容 —— 与 Reviewer 角色用于验收的是同一份 diff。
+
+## 产品界面
+
+| 工程工作台 | Diff 与运行时 |
+| --- | --- |
+| ![CoderKing 工程工作台](docs/showcase/assets/product-workspace.png) | ![CoderKing Diff 与运行时面板](docs/showcase/assets/product-diff.png) |
+| 描述任务、查看计划与 Agent 活动、浏览改动文件。 | 并排查看统一 diff、终端输出与测试结果。 |
+
+截图资源位于 [`docs/showcase/`](docs/showcase/)。可用 `python scripts/capture_showcase.py` 从静态 demo 页重拍，或在真实任务跑通后替换素材。
+
 ## 架构
 
 ```text
@@ -139,7 +162,7 @@ src/coderking/     Python Runtime、CLI、API
 web/               React + Vite 工作台
 eval/tasks/        评测场景
 tests/             单测
-docs/              设计文档与验收清单
+docs/              设计文档、展示素材与验收清单
 ```
 
 ## 文档

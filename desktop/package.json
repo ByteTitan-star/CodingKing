@@ -1,0 +1,15 @@
+{
+  "name": "coderking-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CoderKing Electron shell",
+  "main": "main.mjs",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron . --dist",
+    "postinstall": "node ./node_modules/electron/install.js"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

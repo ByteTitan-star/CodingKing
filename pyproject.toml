@@ -41,7 +41,7 @@ dev = [
 coderking = "coderking.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/coderking/coderking"
+Homepage = "https://github.com/ByteTitan-star/CodingKing"
 
 [tool.setuptools.packages.find]
 where = ["src"]

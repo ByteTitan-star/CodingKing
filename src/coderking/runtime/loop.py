@@ -257,13 +257,16 @@ class AgentRuntime:
                     await on_event(
                         plan_event([{"title": i.title, "done": i.done} for i in state.plan])
                     )
-                    await self._switch_role(state, Role.REVIEWER, on_event)
-                    state.messages.append(
-                        {
-                            "role": "system",
-                            "content": _reviewer_context(state, workspace),
-                        }
-                    )
+                    if all(item.done for item in state.plan):
+                        await self._succeed_task(state, on_event, workspace, "tests passed")
+                    else:
+                        await self._switch_role(state, Role.REVIEWER, on_event)
+                        state.messages.append(
+                            {
+                                "role": "system",
+                                "content": _reviewer_context(state, workspace),
+                            }
+                        )
                 else:
                     state.repair_count += 1
                     await self._switch_role(state, Role.REPAIR, on_event)
@@ -286,17 +289,14 @@ class AgentRuntime:
             await self._switch_role(state, Role.REPAIR, on_event)
             return
         if state.last_test_ok is None:
-            state.messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "Tests have not been run. "
-                        "Call continue_execution or run_tests via Execution."
-                    ),
-                }
-            )
+            state.errors.append("finish_task rejected: tests have not been run")
             await self._switch_role(state, Role.EXECUTION, on_event)
             return
+        await self._succeed_task(state, on_event, workspace, summary)
+
+    async def _succeed_task(
+        self, state: AgentState, on_event: EventSink, workspace: Path, summary: str
+    ) -> None:
         state.mark_plan_complete()
         await on_event(plan_event([{"title": i.title, "done": i.done} for i in state.plan]))
         state.status = TaskStatus.SUCCEEDED
@@ -330,7 +330,7 @@ class AgentRuntime:
 
     async def _switch_role(self, state: AgentState, role: Role, on_event: EventSink) -> None:
         state.role = role
-        state.messages.append({"role": "system", "content": SYSTEM_PROMPTS[role]})
+        state.messages.append({"role": "system", "content": f"[role={role.value}]"})
         await on_event(status_event(state.role, state.status))
 
 

@@ -1,14 +1,21 @@
-# CoderKing
+# 💻 CoderKing
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing"><img src="https://img.shields.io/badge/CoderKing-v0.1.0-2563eb" alt="CoderKing v0.1.0" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases"><img src="https://img.shields.io/badge/CoderKing-v0.1.0-2563eb" alt="CoderKing v0.1.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/English-0A66C2" alt="English" />
   <a href="./README_zh.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" /></a>
 </p>
 
 > Describe an engineering task in natural language — plan, edit code, run tests in a sandbox, and auto-repair until verification passes. One Agent Runtime powers both CLI and Web.
+
+<p align="center">
+  <a href="./docs/showcase/demo.html"><strong>Open workspace demo</strong></a>
+  &nbsp;·&nbsp;
+  <a href="./docs/CoderKing-Technical-Design.md"><strong>Read technical design</strong></a>
+</p>
 
 ## What is CoderKing?
 
@@ -28,6 +35,29 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 | Repair | On test failure, diagnose and patch again. | A corrected implementation |
 | Delivery | Finish with diff summary; optional git commit with approval. | A completed task |
 
+## Product showcase
+
+### Repair loop in action
+
+![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
+
+A failing unit test triggers the Planner → Coding → Execution → Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
+
+### Unified diff
+
+![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
+
+Review exactly what changed before accepting or rolling back — the same diff the Reviewer role uses to verify the fix.
+
+## Product interface
+
+| Engineering workspace | Diff & runtime |
+| --- | --- |
+| ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
+| Describe a task, watch the plan and agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
+
+Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `python scripts/capture_showcase.py` or replace assets after a live demo run.
+
 ## Core features
 
 | Feature | Description |
@@ -41,28 +71,11 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 | Evaluation harness | Scripted tasks for `bug_fix`, `feature_add`, and `refactor`. |
 | Live observability | Web UI shows plan, tool trace, terminal output, diff, and sandbox status. |
 
-## Product showcase
-
-### Repair loop in action
-
-![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
-
-A failing `add()` test triggers the Planner → Coding → Execution → Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
-
-### Unified diff
-
-![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
-
-Review exactly what changed before accepting or rolling back — same diff the Reviewer role uses to verify the fix.
-
-## Product interface
-
-| Engineering workspace | Diff & runtime |
-| --- | --- |
-| ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
-| Describe a task, watch the plan and agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
-
-Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `python scripts/capture_showcase.py` or replace assets after a live demo run.
+<p align="center">
+  <a href="./docs/showcase/demo.html"><strong>Explore the workspace demo</strong></a>
+  &nbsp;·&nbsp;
+  <a href="./docs/phase1-acceptance.md"><strong>Phase 1 acceptance checklist</strong></a>
+</p>
 
 ## Architecture
 
@@ -114,8 +127,6 @@ coderking eval --path eval/tasks --report-dir eval/reports
 
 Configuration priority: CLI flags → environment / `.env` → `.coderking/config.yaml` → defaults. API keys are read from the environment only and must not be committed.
 
-Run tests: `pytest -q -m "not docker"`. With Docker available: `pytest tests/test_docker.py`.
-
 Use `--yes` to auto-approve dangerous operations. Use `--commit` to allow the agent to run `git commit`.
 
 ### Web
@@ -155,7 +166,9 @@ ruff check src tests
 cd web && npm run lint && npm run build
 ```
 
-CI: `.github/workflows/ci.yml` (unit tests skip Docker by default; a separate `docker-sandbox` job runs Docker integration tests).
+With Docker available: `pytest tests/test_docker.py`.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for scope and commit conventions. CI runs via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (unit tests skip Docker by default; a separate `docker-sandbox` job runs Docker integration tests).
 
 ## Repository layout
 
@@ -172,15 +185,6 @@ docs/              Design docs, showcase assets, and acceptance checklist
 - [Technical design](docs/CoderKing-Technical-Design.md)
 - [Web UI & CLI design](docs/CoderKing-WebUI-CLI-Design.md)
 - [Phase 1 acceptance](docs/phase1-acceptance.md)
-
-## Naming
-
-| Use | Value |
-| --- | --- |
-| Product name | CoderKing |
-| Python package / CLI | `coderking` |
-| Config directory | `.coderking/` |
-| Environment prefix | `CODERKING_` |
 
 ## License
 

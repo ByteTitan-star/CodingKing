@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,7 @@ from coderking.controller import CONTROLLER, TaskController
 from coderking.workspace import iter_files
 from coderking_coding_agent.context.project_docs import ProjectInstructionsLoader
 from coderking_coding_agent.context.skills import SkillRegistry
+from coderking_transport.http.sse import stream_task_events
 
 
 def _web_dist() -> Path:
@@ -169,8 +171,27 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             raise HTTPException(404, "task not found") from exc
         return {"ok": True}
 
+    @app.get("/api/v2/tasks/{task_id}/events")
+    async def task_events_sse(task_id: str, request: Request) -> StreamingResponse:
+        """v2 SSE event stream with Last-Event-ID replay (preferred over WebSocket)."""
+        try:
+            ctrl.get(task_id)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        last_event_id = request.headers.get("Last-Event-ID") or request.headers.get("last-event-id")
+        return StreamingResponse(
+            stream_task_events(ctrl, task_id, last_event_id=last_event_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.websocket("/ws/tasks/{task_id}")
     async def task_ws(websocket: WebSocket, task_id: str) -> None:
+        """Legacy WebSocket stream (deprecated; use /api/v2/tasks/{id}/events SSE)."""
         import asyncio
 
         await websocket.accept()
@@ -180,8 +201,8 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             await websocket.send_json({"type": "error", "payload": {"message": "task not found"}})
             await websocket.close()
             return
-        for event in task.snapshot:
-            await websocket.send_json(event)
+        for record in task.snapshot:
+            await websocket.send_json(record)
 
         async def read_client() -> None:
             try:
@@ -198,8 +219,8 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
 
         reader = asyncio.create_task(read_client())
         try:
-            async for event in ctrl.subscribe(task_id):
-                await websocket.send_json(event.as_dict())
+            async for record in ctrl.subscribe_records(task_id):
+                await websocket.send_json(record)
         except WebSocketDisconnect:
             return
         except KeyError:

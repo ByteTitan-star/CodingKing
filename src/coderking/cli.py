@@ -68,6 +68,16 @@ def init(
 
 
 @app.command()
+def rpc(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """JSON-RPC 2.0 over stdin/stdout for Desktop/automation (Pi-style)."""
+    from coderking.rpc import run_rpc_server
+
+    asyncio.run(run_rpc_server(_workspace(workspace)))
+
+
+@app.command()
 def run(
     prompt: str = typer.Argument(..., help="Natural language engineering task"),
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),

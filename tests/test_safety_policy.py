@@ -6,7 +6,7 @@ import yaml
 from coderking.config import Settings
 from coderking.llm.provider import LLMResponse, ToolCall
 from coderking.runtime.loop import AgentRuntime
-from coderking.runtime.state import AgentState, Role, TaskStatus
+from coderking.runtime.state import AgentState, Role
 from coderking_coding_agent.safety.policy import (
     PolicyAction,
     PolicyEngine,
@@ -105,7 +105,10 @@ async def test_loop_approval_when_policy_asks(tmp_path: Path) -> None:
     target.write_text("x", encoding="utf-8")
     llm = ScriptedLLM(
         [
-            LLMResponse("", [ToolCall(id="1", name="delete_file", arguments={"path": "remove-me.txt"})]),
+            LLMResponse(
+                "",
+                [ToolCall(id="1", name="delete_file", arguments={"path": "remove-me.txt"})],
+            ),
             LLMResponse("", []),
         ]
     )

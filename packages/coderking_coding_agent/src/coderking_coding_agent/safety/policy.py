@@ -137,9 +137,17 @@ class PolicyEngine:
 
         default_action = rules.get("default_action")
         if default_action == "deny":
-            return PolicyDecision(PolicyAction.DENY, "tool denied by policy default", "default_action")
+            return PolicyDecision(
+                PolicyAction.DENY,
+                "tool denied by policy default",
+                "default_action",
+            )
         if default_action == "ask" or legacy_requires_approval:
-            reason = "policy requires approval" if default_action == "ask" else "legacy tool approval"
+            reason = (
+                "policy requires approval"
+                if default_action == "ask"
+                else "legacy tool approval"
+            )
             return PolicyDecision(PolicyAction.ASK, reason, "default_action")
 
         return PolicyDecision(PolicyAction.ALLOW, "allowed", None)

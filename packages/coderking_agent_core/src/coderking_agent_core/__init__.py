@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from coderking_agent_core.agent import Agent
-from coderking_agent_core.cancel import CancelledRun, RunCancel
+from coderking_agent_core.cancel import (
+    CancellationToken,
+    CancelledRun,
+    CancelledTask,
+    RunCancel,
+    wait_or_cancel,
+)
 from coderking_agent_core.fsm import InvalidPhaseTransition, LoopEvent, PhaseFSM, PhaseHooks
 from coderking_agent_core.loop import (
     AgentLoopConfig,
@@ -31,7 +37,9 @@ __all__ = [
     "AgentLoopConfig",
     "AgentMessage",
     "AgentTool",
+    "CancellationToken",
     "CancelledRun",
+    "CancelledTask",
     "InvalidPhaseTransition",
     "LoopEvent",
     "LoopPhase",
@@ -42,5 +50,6 @@ __all__ = [
     "TurnResult",
     "new_tool_call",
     "run_agent_loop",
+    "wait_or_cancel",
     "__version__",
 ]

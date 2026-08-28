@@ -53,7 +53,7 @@ scripts/check_layer_deps.py
 1. **PR-1（本 Issue 首 PR）**：脚手架 + 架构文档 + 边界检查 — ✅
 2. **PR-2（#25 / #23 续）**：L0 streaming + retry + `OpenAICompatProvider` 迁入 `coderking_llm`；`src/coderking/llm` 仅 facade — ✅
 3. **PR-3（#24）**：L1 纯 Loop + Agent 类 — ✅（包内落地；`AgentRuntime` harness 仍在 facade）
-4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层 — 部分完成；tools/sandbox 主体仍在 facade
+4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层 — 部分完成；`AgentRuntime` harness 仍在 facade
 
 ## 验收
 
@@ -62,4 +62,5 @@ scripts/check_layer_deps.py
 - [x] 现有 pytest（非 docker）全绿
 - [x] 无环依赖（边界脚本覆盖）
 - [x] Facade `workspace` + file/read/edit tools 迁入 L2（薄 re-export）
-- [ ] Facade `sandbox` / shell / `runtime/loop` harness 迁入 L2（Epic 收尾）
+- [x] Facade `sandbox` / shell / `diffing` + cancel → L1/L2（薄 re-export；manager 适配 Settings）
+- [ ] Facade `runtime/loop` harness 迁入 L2 / 调用 L1 Agent（Epic 收尾）

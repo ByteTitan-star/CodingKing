@@ -44,7 +44,7 @@ def _version_option(
 def init(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
 ) -> None:
-    """Create .coderking/config.yaml and AGENTS.md template in the workspace."""
+    """Create .coderking/config.yaml, policy.yaml, and AGENTS.md template in the workspace."""
     root = _workspace(workspace)
     (root / ".coderking" / "memory").mkdir(parents=True, exist_ok=True)
     if not config_yaml_path(root).exists():
@@ -57,6 +57,13 @@ def init(
                 "max_iterations": 24,
             },
         )
+    policy_path = root / ".coderking" / "policy.yaml"
+    if not policy_path.exists():
+        template = (Path(__file__).resolve().parent / "templates" / "policy.yaml").read_text(
+            encoding="utf-8"
+        )
+        policy_path.write_text(template, encoding="utf-8")
+        console.print(f"created {policy_path}")
     agents_path = root / "AGENTS.md"
     if not agents_path.exists():
         template = (Path(__file__).resolve().parent / "templates" / "AGENTS.md").read_text(

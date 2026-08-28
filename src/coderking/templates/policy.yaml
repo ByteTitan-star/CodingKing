@@ -1,0 +1,10 @@
+tools:
+  bash:
+    deny_patterns:
+      - 'rm\s+-rf\s+/'
+    ask_patterns:
+      - git push
+  write:
+    deny_paths:
+      - .env
+      - "**/secrets/**"

@@ -20,6 +20,7 @@ from coderking.runtime.events import (
     file_event,
     follow_up_event,
     plan_event,
+    project_instructions_event,
     sandbox_event,
     status_event,
     steer_event,
@@ -34,6 +35,7 @@ from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, Tool
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
 from coderking.tools.shell import ShellTool
+from coderking_coding_agent.context.project_docs import inject_project_instructions
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
@@ -92,6 +94,15 @@ class AgentRuntime:
                 },
                 {"role": "user", "content": prompt},
             ]
+            state.messages, project_doc = inject_project_instructions(workspace, state.messages)
+            if project_doc is not None:
+                await on_event(
+                    project_instructions_event(
+                        project_doc.source,
+                        project_doc.content_hash,
+                        truncated=project_doc.truncated,
+                    )
+                )
         else:
             state.messages.append({"role": "user", "content": prompt})
             state.role = Role.PLANNER

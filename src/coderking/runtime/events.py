@@ -70,3 +70,10 @@ def steer_event(content: str) -> AgentEvent:
 
 def follow_up_event(content: str) -> AgentEvent:
     return AgentEvent("follow_up", {"content": content})
+
+
+def project_instructions_event(source: str, content_hash: str, *, truncated: bool) -> AgentEvent:
+    return AgentEvent(
+        "project_instructions",
+        {"source": source, "hash": content_hash, "truncated": truncated},
+    )

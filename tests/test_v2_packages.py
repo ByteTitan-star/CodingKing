@@ -23,8 +23,6 @@ def test_layer_contracts_are_usable() -> None:
     assert LoopPhase.DECIDE == "decide"
     ctx = AgentContext(system_prompt="x")
     assert ctx.messages == []
-    from coderking_coding_agent.extensions_swe import default_registry
-
     registry = default_registry()
     assert "swe" in registry.names()
     assert TransportKind.RPC_STDIO == "rpc_stdio"

@@ -51,6 +51,7 @@ where = [
   "packages/coderking_agent_core/src",
   "packages/coderking_coding_agent/src",
   "packages/coderking_transport/src",
+  "packages/coderking_sdk/src",
 ]
 
 [tool.setuptools.package-data]
@@ -59,6 +60,7 @@ coderking_llm = ["py.typed"]
 coderking_agent_core = ["py.typed"]
 coderking_coding_agent = ["py.typed"]
 coderking_transport = ["py.typed"]
+coderking_sdk = ["py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -71,6 +73,7 @@ pythonpath = [
   "packages/coderking_agent_core/src",
   "packages/coderking_coding_agent/src",
   "packages/coderking_transport/src",
+  "packages/coderking_sdk/src",
 ]
 markers = [
   "docker: tests that require a working Docker daemon",
@@ -87,6 +90,7 @@ src = [
   "packages/coderking_agent_core/src",
   "packages/coderking_coding_agent/src",
   "packages/coderking_transport/src",
+  "packages/coderking_sdk/src",
 ]
 
 [tool.ruff.lint]
@@ -104,4 +108,5 @@ known-first-party = [
   "coderking_agent_core",
   "coderking_coding_agent",
   "coderking_transport",
+  "coderking_sdk",
 ]

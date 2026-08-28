@@ -10,7 +10,7 @@ async def test_write_and_read(tmp_path: Path) -> None:
     await WriteFileTool(tmp_path).execute(path="pkg/mod.py", content="x = 1\n")
     result = await ReadFileTool(tmp_path).execute(path="pkg/mod.py")
     assert result.ok
-    assert "x = 1" in result.output
+    assert "1|x = 1" in result.output
 
 
 @pytest.mark.asyncio

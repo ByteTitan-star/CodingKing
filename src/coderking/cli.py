@@ -85,6 +85,20 @@ def rpc(
 
 
 @app.command()
+def tui(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
+    commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
+) -> None:
+    """Interactive Textual TUI (chat / tools / terminal panels)."""
+    from coderking.tui_runner import run_interactive_tui
+
+    root = _workspace(workspace)
+    settings = load_settings(workspace=root, allow_commit=commit)
+    asyncio.run(run_interactive_tui(root, settings, auto_approve=yes))
+
+
+@app.command()
 def run(
     prompt: str = typer.Argument(..., help="Natural language engineering task"),
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),

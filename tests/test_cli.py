@@ -17,6 +17,7 @@ def test_cli_help() -> None:
     assert "serve" in result.stdout
     assert "eval" in result.stdout
     assert "chat" in result.stdout
+    assert "tui" in result.stdout
     assert "stop" in result.stdout
     assert "status" in result.stdout
 

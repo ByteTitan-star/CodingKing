@@ -30,3 +30,4 @@ def test_layer_contracts_are_usable() -> None:
     registry = default_registry()
     assert "swe" in registry.names()
     assert TransportKind.RPC_STDIO == "rpc_stdio"
+    assert TransportKind.TUI == "tui"

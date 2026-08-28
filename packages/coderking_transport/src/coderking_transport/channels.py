@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 class TransportKind(StrEnum):
     CLI = "cli"
+    TUI = "tui"
     HTTP = "http"
     SSE = "sse"
     RPC_STDIO = "rpc_stdio"

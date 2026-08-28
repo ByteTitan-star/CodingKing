@@ -11,6 +11,7 @@ dependencies = [
   "coderking-coding-agent>=0.1.0",
   "coderking-agent-core>=0.1.0",
   "coderking-llm>=0.1.0",
+  "textual>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -13,7 +13,6 @@ DANGEROUS = re.compile(
 
 
 class ShellTool(Tool):
-    name = "shell"
     description = "Run a shell command inside the sandbox (cwd = workspace)."
     parameters = {
         "type": "object",
@@ -21,7 +20,8 @@ class ShellTool(Tool):
         "required": ["command"],
     }
 
-    def __init__(self, sandbox: Sandbox, timeout_sec: int):
+    def __init__(self, sandbox: Sandbox, timeout_sec: int, *, name: str = "shell"):
+        self.name = name
         self.sandbox = sandbox
         self.timeout_sec = timeout_sec
 

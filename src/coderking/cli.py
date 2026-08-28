@@ -66,9 +66,16 @@ def run(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
     yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
     commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
+    extension: str = typer.Option(
+        "swe",
+        "--extension",
+        help="Tool profile: swe (5-role harness) or atomic (read/write/edit/bash only)",
+    ),
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
-    settings = load_settings(workspace=_workspace(workspace), allow_commit=commit)
+    settings = load_settings(
+        workspace=_workspace(workspace), allow_commit=commit, extension=extension
+    )
     asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None))
 
 

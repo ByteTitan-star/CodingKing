@@ -81,9 +81,7 @@ class OpenAICompatProvider:
                 except httpx.HTTPStatusError as exc:
                     if exc.response.status_code not in {400, 404, 415, 501}:
                         raise
-            return await self._complete_non_stream(
-                client, url, headers, payload, should_abort
-            )
+            return await self._complete_non_stream(client, url, headers, payload, should_abort)
         finally:
             if owns:
                 await client.aclose()

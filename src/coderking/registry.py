@@ -97,14 +97,31 @@ def session_path(workspace: Path) -> Path:
     return _dir(workspace) / "session.json"
 
 
+def session_jsonl_path(workspace: Path, session_id: str = "default") -> Path:
+    return _dir(workspace) / "sessions" / f"{session_id}.jsonl"
+
+
+def _session_repo(workspace: Path, session_id: str = "default"):
+    from coderking_coding_agent.session import SessionRepo
+
+    return SessionRepo(workspace, session_id=session_id)
+
+
 def load_session(workspace: Path) -> dict[str, Any]:
+    jsonl = session_jsonl_path(workspace)
+    if jsonl.is_file():
+        return _session_repo(workspace).materialize_session_state()
     path = session_path(workspace)
     if not path.is_file():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    from coderking_coding_agent.session import import_legacy_session
+
+    repo = import_legacy_session(workspace)
+    if repo is None:
+        return {}
+    return repo.materialize_session_state()
 
 
 def save_session(workspace: Path, payload: dict[str, Any]) -> None:
-    session_path(workspace).write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    repo = _session_repo(workspace)
+    repo.append("message", {"session_snapshot": payload})

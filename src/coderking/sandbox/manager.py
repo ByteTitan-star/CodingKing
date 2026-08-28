@@ -7,6 +7,7 @@ from coderking.sandbox.base import Sandbox
 from coderking.sandbox.cow import CowWorkspace
 from coderking.sandbox.docker import DockerSandbox, docker_available
 from coderking.sandbox.local import LocalProcessSandbox
+from coderking.sandbox.microvm import MicroVmSandbox, create_microvm_provider
 from coderking.sandbox.network import NetworkPolicy, resolve_network_mode
 
 
@@ -24,6 +25,9 @@ async def create_sandbox(
             LocalProcessSandbox(work),
             f"development fallback (not strong isolation){note_suffix}",
         )
+    if mode == "microvm":
+        sandbox = _microvm(work, settings)
+        return sandbox, f"microvm:{settings.sandbox_microvm_provider}{note_suffix}"
     if mode == "docker":
         if not await docker_available():
             raise RuntimeError("CODERKING_SANDBOX_MODE=docker but Docker is unavailable")
@@ -53,3 +57,15 @@ def _docker(workspace: Path, settings: Settings) -> DockerSandbox:
         cpus=settings.sandbox_cpus,
         network_policy=_network_policy(settings),
     )
+
+
+def _microvm(workspace: Path, settings: Settings) -> MicroVmSandbox:
+    provider = create_microvm_provider(
+        settings.sandbox_microvm_provider,
+        api_key=settings.sandbox_e2b_api_key,
+        template=settings.sandbox_e2b_template,
+        image=settings.sandbox_image,
+        memory_mb=settings.sandbox_memory_mb,
+        cpus=settings.sandbox_cpus,
+    )
+    return MicroVmSandbox(workspace, provider=provider)

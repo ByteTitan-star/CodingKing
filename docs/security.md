@@ -46,11 +46,25 @@ Configure via `CODERKING_SANDBOX_NETWORK_MODE` / `sandbox_network_mode` and
 `CODERKING_SANDBOX_ALLOW_HOSTS` (comma-separated). Misconfigured `restricted`
 without hosts raises a clear `ValueError`.
 
+## Micro-VM backend
+
+Set `CODERKING_SANDBOX_MODE=microvm` to use the Micro-VM sandbox:
+
+| Provider (`CODERKING_SANDBOX_MICROVM_PROVIDER`) | Role |
+|-----------------------------------------------|------|
+| `mock` (default) | Docker sealed mounts — host `/etc/passwd` is not visible |
+| `e2b` | Hosted Micro-VM via E2B (`CODERKING_E2B_API_KEY`) |
+| `firecracker` | Phase 4b stub (raises clear `NotImplementedError`) |
+
+LLM credentials stay on the host; Micro-VM sessions only see workspace mounts
+and scrubbed/marker env vars.
+
 ## Verification
 
 ```bash
 python -m pytest -q tests/sandbox/test_credential_isolation.py
 python -m pytest -q tests/sandbox/test_network_policy.py
+python -m pytest -q tests/sandbox/test_microvm.py -m "not docker"
 ```
 
 CI asserts:

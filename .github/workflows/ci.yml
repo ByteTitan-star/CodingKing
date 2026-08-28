@@ -45,7 +45,7 @@ jobs:
       - name: Docker sandbox tests
         env:
           CODERKING_SANDBOX_MODE: docker
-        run: pytest -q tests/test_docker.py
+        run: pytest -q tests/test_docker.py tests/sandbox/test_network_docker.py tests/sandbox/test_microvm.py -m docker
 
   frontend:
     runs-on: ubuntu-latest

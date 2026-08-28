@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-SandboxMode = Literal["auto", "docker", "local"]
+SandboxMode = Literal["auto", "docker", "local", "microvm"]
 NetworkMode = Literal["none", "full", "restricted"]
+MicroVmProviderName = Literal["mock", "e2b", "firecracker"]
 
 YAML_KEYS = (
     "openai_base_url",
@@ -26,6 +27,9 @@ YAML_KEYS = (
     "sandbox_image",
     "sandbox_cow",
     "sandbox_rollback_on_interrupt",
+    "sandbox_microvm_provider",
+    "sandbox_e2b_api_key",
+    "sandbox_e2b_template",
     "max_iterations",
     "allow_commit",
 )
@@ -45,6 +49,9 @@ ENV_MAP = {
     "sandbox_image": "CODERKING_SANDBOX_IMAGE",
     "sandbox_cow": "CODERKING_SANDBOX_COW",
     "sandbox_rollback_on_interrupt": "CODERKING_SANDBOX_ROLLBACK_ON_INTERRUPT",
+    "sandbox_microvm_provider": "CODERKING_SANDBOX_MICROVM_PROVIDER",
+    "sandbox_e2b_api_key": "CODERKING_E2B_API_KEY",
+    "sandbox_e2b_template": "CODERKING_E2B_TEMPLATE",
     "max_iterations": "CODERKING_MAX_ITERATIONS",
     "allow_commit": "CODERKING_ALLOW_COMMIT",
 }
@@ -79,6 +86,9 @@ class Settings(BaseSettings):
     sandbox_image: str = "python:3.12-slim"
     sandbox_cow: bool = False
     sandbox_rollback_on_interrupt: bool = False
+    sandbox_microvm_provider: MicroVmProviderName = "mock"
+    sandbox_e2b_api_key: str = ""
+    sandbox_e2b_template: str | None = None
 
     max_iterations: int = 24
     allow_commit: bool = False

@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from coderking.runtime.cancel import CancellationToken
+from coderking.sandbox.credentials import scrub_env
 
 MAX_BUFFER_BYTES = 1_048_576
 DEFAULT_TTL_SEC = 3600
@@ -77,6 +78,7 @@ class JobManager:
         proc = await asyncio.create_subprocess_shell(
             command,
             cwd=self.workspace,
+            env=scrub_env(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

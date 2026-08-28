@@ -5,6 +5,7 @@ from pathlib import Path
 
 from coderking.runtime.cancel import CancellationToken, CancelledTask
 from coderking.sandbox.base import ExecResult, Sandbox
+from coderking.sandbox.credentials import scrub_env
 from coderking.sandbox.job_manager import JobManager, JobSnapshot
 
 
@@ -36,6 +37,7 @@ class LocalProcessSandbox(Sandbox):
         proc = await asyncio.create_subprocess_shell(
             command,
             cwd=self.workspace,
+            env=scrub_env(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

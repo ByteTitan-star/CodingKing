@@ -1,0 +1,139 @@
+"""Credential isolation helpers for sandbox processes and mounts."""
+
+from __future__ import annotations
+
+import os
+import re
+from fnmatch import fnmatch
+from pathlib import Path
+from typing import Mapping
+
+# Host-only secrets — never injected into sandbox child processes / containers.
+SECRET_ENV_PREFIXES = (
+    "CODERKING_",
+    "OPENAI_",
+    "ANTHROPIC_",
+    "AZURE_OPENAI_",
+    "AWS_",
+    "GOOGLE_",
+    "GEMINI_",
+    "DEEPSEEK_",
+)
+
+SECRET_ENV_NAMES = frozenset(
+    {
+        "API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+    }
+)
+
+# Allowlisted env vars passed into sandbox (plus PATH / locale essentials).
+SANDBOX_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "PATHEXT",
+        "HOME",
+        "USER",
+        "USERNAME",
+        "USERPROFILE",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "TMP",
+        "TEMP",
+        "TMPDIR",
+        "SystemRoot",
+        "SYSTEMROOT",
+        "ComSpec",
+        "COMSPEC",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "PYTHONIOENCODING",
+        "PYTHONUTF8",
+        "TZ",
+    }
+)
+
+# Paths excluded from CoW clones / mounts (dockerignore-style).
+SECRET_PATH_PATTERNS = (
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*credentials*",
+    "*secret*",
+    ".git/config",
+    ".coderking",
+)
+
+_SECRET_VALUE_RE = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-)")
+
+
+def is_secret_env_name(name: str) -> bool:
+    upper = name.upper()
+    if upper in SECRET_ENV_NAMES:
+        return True
+    return any(upper.startswith(prefix) for prefix in SECRET_ENV_PREFIXES)
+
+
+def scrub_env(
+    env: Mapping[str, str] | None = None,
+    *,
+    allowlist_only: bool = False,
+) -> dict[str, str]:
+    """Return a sandbox-safe environment.
+
+    By default strips secret names/prefixes but keeps developer tooling vars
+    (e.g. APPDATA for user site-packages). Pass ``allowlist_only=True`` for
+    minimal Docker-style env construction from an explicit source mapping.
+    """
+    source = dict(env if env is not None else os.environ)
+    cleaned: dict[str, str] = {}
+    for key, value in source.items():
+        if is_secret_env_name(key):
+            continue
+        if allowlist_only and key not in SANDBOX_ENV_ALLOWLIST and not key.startswith("LC_"):
+            continue
+        cleaned[key] = value
+    if allowlist_only and "PATH" not in cleaned and "PATH" in source:
+        cleaned["PATH"] = source["PATH"]
+    cleaned.setdefault("PYTHONIOENCODING", "utf-8")
+    return cleaned
+
+
+def is_secret_path(rel_path: str) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.lstrip("/")
+    basename = normalized.rsplit("/", 1)[-1]
+    for pattern in SECRET_PATH_PATTERNS:
+        if fnmatch(normalized, pattern) or fnmatch(basename, pattern):
+            return True
+        parts = normalized.split("/")
+        if any(fnmatch(part, pattern) for part in parts):
+            return True
+    return False
+
+
+def secret_ignore_names(directory: str, names: list[str]) -> set[str]:
+    """shutil.copytree ignore callback for secret paths + SKIP_DIRS."""
+    from coderking.workspace import SKIP_DIRS
+
+    ignored: set[str] = set()
+    parent = Path(directory).name
+    for name in names:
+        if name in SKIP_DIRS:
+            ignored.add(name)
+            continue
+        if is_secret_path(name) or is_secret_path(f"{parent}/{name}"):
+            ignored.add(name)
+    return ignored
+
+
+def contains_secret_marker(text: str) -> bool:
+    return bool(_SECRET_VALUE_RE.search(text))

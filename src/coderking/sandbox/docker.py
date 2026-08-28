@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from coderking.runtime.cancel import CancellationToken, CancelledTask
 from coderking.sandbox.base import ExecResult, Sandbox
+from coderking.sandbox.credentials import scrub_env
 from coderking.sandbox.job_manager import JobSnapshot
 from coderking.sandbox.local import _communicate, _kill
 
@@ -27,6 +28,18 @@ async def docker_available() -> bool:
         proc.kill()
         return False
     return proc.returncode == 0
+
+
+def _docker_env_args(extra: dict[str, str] | None = None) -> list[str]:
+    """Never inherit host env; only pass scrubbed explicit extras + sandbox marker."""
+    cleaned = scrub_env(dict(extra or {}), allowlist_only=True)
+    args: list[str] = ["--env", "CODERKING_SANDBOX=1"]
+    for key, value in sorted(cleaned.items()):
+        if key == "PYTHONIOENCODING" and not extra:
+            # Marker-only default: avoid injecting host-unrelated defaults as docker -e.
+            continue
+        args.extend(["--env", f"{key}={value}"])
+    return args
 
 
 class DockerSandbox(Sandbox):
@@ -66,6 +79,7 @@ class DockerSandbox(Sandbox):
             f"{self.workspace.resolve()}:/workspace",
             "-w",
             "/workspace",
+            *_docker_env_args(),
         ]
         if not self.network:
             args.extend(["--network", "none"])
@@ -87,6 +101,7 @@ class DockerSandbox(Sandbox):
             f"{self.workspace.resolve()}:/workspace",
             "-w",
             "/workspace",
+            *_docker_env_args(),
         ]
         if not self.network:
             args.extend(["--network", "none"])

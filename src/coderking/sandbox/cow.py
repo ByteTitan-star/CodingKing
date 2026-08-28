@@ -43,10 +43,12 @@ def _link_or_copy(src: str, dst: str) -> None:
 
 
 def clone_workspace(source: Path, dest: Path) -> None:
-    """Clone source into dest using hardlinks when possible (CoW-friendly)."""
+    """Clone source into dest, skipping SKIP_DIRS and secret paths."""
+    from coderking.sandbox.credentials import secret_ignore_names
+
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(source, dest, ignore=_ignore_names, copy_function=_link_or_copy)
+    shutil.copytree(source, dest, ignore=secret_ignore_names, copy_function=_link_or_copy)
 
 
 class CowWorkspace:

@@ -6,14 +6,14 @@ import json
 from pathlib import Path
 
 import pytest
-from tests.e2e.conftest import (
+
+from coderking.evalkit.live import (
     EVAL_TASKS,
     REPO_ROOT,
     copy_eval_repo,
     live_settings,
     require_live_key,
 )
-
 from coderking.evalkit.loader import discover_tasks
 from coderking.evalkit.runner import run_eval_task, summarize, write_reports
 from coderking.llm.openai_compat import OpenAICompatProvider

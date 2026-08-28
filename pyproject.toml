@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coderking"
-version = "1.0.1"
+version = "1.0.2"
 description = "CoderKing：自研 ReAct + Reflection 的工程化 Coding Agent（CLI + Web）"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -91,6 +91,10 @@ src = [
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/create_whitepaper_issues.py" = ["E501"]
+"scripts/post_issue_implementation_plans.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

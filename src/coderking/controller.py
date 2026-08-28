@@ -32,16 +32,23 @@ class ManagedTask:
 
 
 class TaskController:
-    def __init__(self, settings: Settings | None = None):
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        llm: Any | None = None,
+    ):
         self.settings = settings or load_settings()
+        self._llm = llm
         self.tasks: dict[str, ManagedTask] = {}
         self._lock = asyncio.Lock()
 
     def _runtime(self, cancel: CancellationToken) -> AgentRuntime:
         memory_path = self.settings.resolved_workspace() / ".coderking" / "memory.db"
+        provider = self._llm if self._llm is not None else OpenAICompatProvider(self.settings)
         return AgentRuntime(
             self.settings,
-            OpenAICompatProvider(self.settings),
+            provider,
             memory=MemoryStore(memory_path),
             cancel=cancel,
         )

@@ -3,6 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from coderking.sandbox.job_manager import JobSnapshot
+
 
 @dataclass
 class ExecResult:
@@ -23,5 +25,17 @@ class Sandbox(ABC):
     @abstractmethod
     async def run(self, command: str, *, timeout_sec: int) -> ExecResult: ...
 
-    async def close(self) -> None:
+    async def start_job(self, command: str) -> str:
+        raise NotImplementedError(f"{self.name} sandbox does not support background jobs")
+
+    def poll_job(self, job_id: str) -> JobSnapshot:
+        raise NotImplementedError(f"{self.name} sandbox does not support background jobs")
+
+    async def kill_job(self, job_id: str) -> bool:
+        raise NotImplementedError(f"{self.name} sandbox does not support background jobs")
+
+    async def kill_all_jobs(self) -> None:
         return None
+
+    async def close(self) -> None:
+        await self.kill_all_jobs()

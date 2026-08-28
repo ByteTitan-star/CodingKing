@@ -178,9 +178,7 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             ctrl.get(task_id)
         except KeyError as exc:
             raise HTTPException(404, "task not found") from exc
-        last_event_id = request.headers.get("Last-Event-ID") or request.headers.get(
-            "last-event-id"
-        )
+        last_event_id = request.headers.get("Last-Event-ID") or request.headers.get("last-event-id")
         return StreamingResponse(
             stream_task_events(ctrl, task_id, last_event_id=last_event_id),
             media_type="text/event-stream",

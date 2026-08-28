@@ -261,9 +261,7 @@ async def _execute_tools_parallel(
     emit: Callable[[dict[str, Any]], Awaitable[None]],
     config: AgentLoopConfig,
 ) -> tuple[list[ToolExecutionResult], list[AgentMessage]]:
-    pending = [
-        asyncio.create_task(_execute_one_tool(ctx, call, emit, config)) for call in calls
-    ]
+    pending = [asyncio.create_task(_execute_one_tool(ctx, call, emit, config)) for call in calls]
     results: list[ToolExecutionResult] = []
     steering_found: list[AgentMessage] = []
     for task in asyncio.as_completed(pending):

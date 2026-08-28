@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from tests.e2e.conftest import require_live_key
+
+from coderking.evalkit.live import require_live_key
 
 
 def test_require_live_key_skips_for_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:

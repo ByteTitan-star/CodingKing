@@ -7,6 +7,8 @@ def test_yaml_then_env_then_cli(tmp_path: Path, monkeypatch) -> None:  # noqa: A
     write_yaml_config(
         tmp_path, {"model": "from-yaml", "openai_base_url": "https://yaml.example/v1"}
     )
+    # Isolate from developer machine .env / shell exports.
+    monkeypatch.setattr("coderking.config.load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("CODERKING_MODEL", raising=False)
     monkeypatch.delenv("CODERKING_OPENAI_BASE_URL", raising=False)
     settings = load_settings(workspace=tmp_path)

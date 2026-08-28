@@ -23,7 +23,9 @@ def test_cli_help() -> None:
 
 def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("coderking.config.load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("CODERKING_MODEL", raising=False)
+    monkeypatch.delenv("CODERKING_OPENAI_BASE_URL", raising=False)
     init = runner.invoke(app, ["init", "--workspace", str(tmp_path)])
     assert init.exit_code == 0
     assert (tmp_path / ".coderking" / "config.yaml").is_file()
@@ -59,6 +61,7 @@ def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: 
 
 
 def test_eval_requires_api_key(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("coderking.config.load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("CODERKING_OPENAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["eval", "--workspace", str(tmp_path)])

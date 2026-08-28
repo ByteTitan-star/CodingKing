@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coderking-coding-agent"
+version = "0.1.0"
+description = "CoderKing L2: coding agent domain runtime"
+requires-python = ">=3.12"
+dependencies = ["coderking-agent-core>=0.1.0", "coderking-llm>=0.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

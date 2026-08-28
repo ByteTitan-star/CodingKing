@@ -44,16 +44,33 @@ coderking = "coderking.cli:app"
 Homepage = "https://github.com/ByteTitan-star/CodingKing"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [
+  "src",
+  "packages/coderking_llm/src",
+  "packages/coderking_agent_core/src",
+  "packages/coderking_coding_agent/src",
+  "packages/coderking_transport/src",
+]
 
 [tool.setuptools.package-data]
 coderking = ["py.typed"]
+coderking_llm = ["py.typed"]
+coderking_agent_core = ["py.typed"]
+coderking_coding_agent = ["py.typed"]
+coderking_transport = ["py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = [
+  "src",
+  "scripts",
+  "packages/coderking_llm/src",
+  "packages/coderking_agent_core/src",
+  "packages/coderking_coding_agent/src",
+  "packages/coderking_transport/src",
+]
 markers = [
   "docker: tests that require a working Docker daemon",
 ]
@@ -61,11 +78,25 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src", "tests"]
+src = [
+  "src",
+  "tests",
+  "scripts",
+  "packages/coderking_llm/src",
+  "packages/coderking_agent_core/src",
+  "packages/coderking_coding_agent/src",
+  "packages/coderking_transport/src",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["coderking"]
+known-first-party = [
+  "coderking",
+  "coderking_llm",
+  "coderking_agent_core",
+  "coderking_coding_agent",
+  "coderking_transport",
+]

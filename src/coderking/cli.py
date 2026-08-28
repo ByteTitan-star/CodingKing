@@ -59,9 +59,9 @@ def init(
         )
     agents_path = root / "AGENTS.md"
     if not agents_path.exists():
-        template = (
-            Path(__file__).resolve().parent / "templates" / "AGENTS.md"
-        ).read_text(encoding="utf-8")
+        template = (Path(__file__).resolve().parent / "templates" / "AGENTS.md").read_text(
+            encoding="utf-8"
+        )
         agents_path.write_text(template, encoding="utf-8")
         console.print(f"created {agents_path}")
     console.print(f"initialized {root / '.coderking'}")

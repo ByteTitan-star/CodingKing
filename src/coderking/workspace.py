@@ -34,7 +34,8 @@ def iter_files(workspace: Path, *, max_files: int = 400) -> list[Path]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in SKIP_DIRS for part in path.parts):
+        rel_parts = path.relative_to(root).parts
+        if any(part in SKIP_DIRS for part in rel_parts):
             continue
         files.append(path)
         if len(files) >= max_files:

@@ -35,6 +35,7 @@ from coderking.runtime.events import (
 from coderking.runtime.queues import RunMessageQueues
 from coderking.runtime.roles import ROLE_TOOLS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
+from coderking.sandbox.cow import CowWorkspace
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.dynamic_adapter import wrap_dynamic_tools
 from coderking.tools.dynamic_runner import SandboxToolRunner
@@ -78,24 +79,29 @@ class AgentRuntime:
         queues: RunMessageQueues | None = None,
     ) -> AgentState:
         workspace = workspace.resolve()
-        state = state or AgentState(task=prompt, repository=str(workspace))
+        source = workspace
+        state = state or AgentState(task=prompt, repository=str(source))
         self._run_queues = queues
+        cow: CowWorkspace | None = None
+        if self.settings.sandbox_cow:
+            cow = CowWorkspace(source, session_id=state.task_id)
+            workspace = cow.materialize()
         if not state.snapshot:
             state.snapshot = snapshot_workspace(workspace)
         state.status = TaskStatus.RUNNING
         state.sandbox_status = "active"
-        sandbox, note = await create_sandbox(workspace, self.settings)
+        sandbox, note = await create_sandbox(workspace, self.settings, cow=cow)
         sandbox.cancel = self.cancel  # type: ignore[attr-defined]
         state.sandbox_backend = sandbox.name
         await on_event(sandbox_event(sandbox.name, "active", note=note))
         tools = build_tools(workspace, sandbox, self.settings)
         dynamic_loader = DynamicToolLoader(
-            workspace,
+            source,
             SandboxToolRunner(sandbox, timeout_sec=self.settings.sandbox_timeout_sec),
             timeout_sec=self.settings.sandbox_timeout_sec,
         )
-        skill_registry = SkillRegistry(workspace, include_cursor=False)
-        policy_engine = PolicyEngine.load(workspace)
+        skill_registry = SkillRegistry(source, include_cursor=False)
+        policy_engine = PolicyEngine.load(source)
         if test_command:
             from coderking.tools.test import RunTestsTool
 
@@ -110,7 +116,7 @@ class AgentRuntime:
                 },
                 {"role": "user", "content": prompt},
             ]
-            state.messages, project_doc = inject_project_instructions(workspace, state.messages)
+            state.messages, project_doc = inject_project_instructions(source, state.messages)
             if project_doc is not None:
                 await on_event(
                     project_instructions_event(
@@ -120,7 +126,7 @@ class AgentRuntime:
                     )
                 )
             state.messages, injected_skills = inject_matching_skills(
-                workspace,
+                source,
                 state.messages,
                 prompt,
                 registry=skill_registry,
@@ -149,7 +155,7 @@ class AgentRuntime:
         try:
             while state.iteration < self.settings.max_iterations:
                 self.cancel.raise_if_cancelled()
-                if cancel_requested(workspace, state.task_id):
+                if cancel_requested(source, state.task_id):
                     self.cancel.cancel()
                     state.cancel_requested = True
                 if (
@@ -159,12 +165,20 @@ class AgentRuntime:
                 ):
                     self.cancel.cancel()
                     state.status = TaskStatus.INTERRUPTED
+                    if (
+                        cow is not None
+                        and self.settings.sandbox_rollback_on_interrupt
+                        and state.snapshot
+                    ):
+                        from coderking.diffing import restore_snapshot
+
+                        restore_snapshot(workspace, state.snapshot)
                     if fsm.phase != LoopPhase.TERMINATED:
                         await fsm.advance(LoopEvent.TERMINATE, on_phase_change=emit_phase)
                     await on_event(done_event(False, "interrupted"))
-                    persist_state(workspace, state)
+                    persist_state(source, state)
                     return state
-                persist_state(workspace, state)
+                persist_state(source, state)
                 state.iteration += 1
                 if fsm.phase == LoopPhase.RE_PERCEIVE:
                     await fsm.advance(LoopEvent.CONTINUE, on_phase_change=emit_phase)
@@ -174,7 +188,7 @@ class AgentRuntime:
                     await _inject_steering(state, queues, on_event)
                 recent_context = _recent_tool_context(state.messages)
                 state.messages, injected_skills = inject_matching_skills(
-                    workspace,
+                    source,
                     state.messages,
                     state.task,
                     recent_context,
@@ -223,6 +237,7 @@ class AgentRuntime:
                         approve,
                         auto_approve,
                         workspace,
+                        source,
                         policy_engine,
                         dynamic_loader,
                     )
@@ -252,6 +267,10 @@ class AgentRuntime:
             return state
         except CancelledTask:
             state.status = TaskStatus.INTERRUPTED
+            if cow is not None and self.settings.sandbox_rollback_on_interrupt and state.snapshot:
+                from coderking.diffing import restore_snapshot
+
+                restore_snapshot(workspace, state.snapshot)
             await on_event(done_event(False, "interrupted"))
             return state
         except Exception as exc:
@@ -264,7 +283,11 @@ class AgentRuntime:
             self._run_queues = None
             await sandbox.close()
             state.sandbox_status = "idle"
-            persist_state(workspace, state)
+            if cow is not None:
+                if state.status == TaskStatus.SUCCEEDED:
+                    cow.promote()
+                cow.close()
+            persist_state(source, state)
 
     async def _run_tool(
         self,
@@ -275,6 +298,7 @@ class AgentRuntime:
         approve: ApprovalFn | None,
         auto_approve: bool,
         workspace: Path,
+        source: Path,
         policy_engine: PolicyEngine,
         dynamic_loader: DynamicToolLoader,
     ) -> None:
@@ -306,7 +330,7 @@ class AgentRuntime:
                     arguments=call.arguments,
                 )
             )
-            _audit_policy_decision(workspace, call.name, call.arguments, decision)
+            _audit_policy_decision(source, call.name, call.arguments, decision)
             if decision.action == PolicyAction.DENY:
                 output = f"policy denied: {decision.reason}"
                 ok = False

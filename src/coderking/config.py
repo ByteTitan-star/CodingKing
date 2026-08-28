@@ -21,6 +21,8 @@ YAML_KEYS = (
     "sandbox_cpus",
     "sandbox_network",
     "sandbox_image",
+    "sandbox_cow",
+    "sandbox_rollback_on_interrupt",
     "max_iterations",
     "allow_commit",
 )
@@ -36,6 +38,8 @@ ENV_MAP = {
     "sandbox_cpus": "CODERKING_SANDBOX_CPUS",
     "sandbox_network": "CODERKING_SANDBOX_NETWORK",
     "sandbox_image": "CODERKING_SANDBOX_IMAGE",
+    "sandbox_cow": "CODERKING_SANDBOX_COW",
+    "sandbox_rollback_on_interrupt": "CODERKING_SANDBOX_ROLLBACK_ON_INTERRUPT",
     "max_iterations": "CODERKING_MAX_ITERATIONS",
     "allow_commit": "CODERKING_ALLOW_COMMIT",
 }
@@ -55,6 +59,8 @@ class Settings(BaseSettings):
     sandbox_cpus: float = 1.0
     sandbox_network: bool = False
     sandbox_image: str = "python:3.12-slim"
+    sandbox_cow: bool = False
+    sandbox_rollback_on_interrupt: bool = False
 
     max_iterations: int = 24
     allow_commit: bool = False

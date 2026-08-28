@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Mapping
 
 # Host-only secrets — never injected into sandbox child processes / containers.
 SECRET_ENV_PREFIXES = (

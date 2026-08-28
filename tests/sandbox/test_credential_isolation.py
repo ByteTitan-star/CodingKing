@@ -88,7 +88,9 @@ def test_docker_env_args_never_include_host_secrets(
     assert "CODERKING_OPENAI_API_KEY" not in joined
 
 
-def test_docker_build_args_use_scrubbed_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docker_build_args_use_scrubbed_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-docker-leak")
     sandbox = DockerSandbox(
         tmp_path,

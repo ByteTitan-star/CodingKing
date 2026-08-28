@@ -20,6 +20,7 @@ def test_docker_args_include_limits_and_network() -> None:
     assert "--network" in args and "none" in args
     assert "--memory" in args and "256m" in args
     assert "--cpus" in args and "0.5" in args
+    assert "--env" in args and "CODERKING_SANDBOX=1" in args
 
 
 @pytest.mark.docker

@@ -23,6 +23,26 @@ def test_docker_args_include_limits_and_network() -> None:
     assert "--env" in args and "CODERKING_SANDBOX=1" in args
 
 
+def test_docker_args_restricted_includes_proxy_and_host_gateway() -> None:
+    from coderking.sandbox.network import NetworkPolicy
+
+    sandbox = DockerSandbox(
+        Path("."),
+        image="python:3.12-slim",
+        memory_mb=256,
+        cpus=0.5,
+        network_policy=NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",)),
+    )
+    args = sandbox.build_args(
+        "echo hello",
+        "coderking-restricted",
+        proxy_url="http://host.docker.internal:9999",
+    )
+    assert "--network" not in args
+    assert "host.docker.internal:host-gateway" in args
+    assert any("HTTPS_PROXY=http://host.docker.internal:9999" in a for a in args)
+
+
 @pytest.mark.docker
 @pytest.mark.asyncio
 async def test_docker_echo_mount_network_timeout(tmp_path: Path) -> None:

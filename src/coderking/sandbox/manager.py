@@ -7,6 +7,7 @@ from coderking.sandbox.base import Sandbox
 from coderking.sandbox.cow import CowWorkspace
 from coderking.sandbox.docker import DockerSandbox, docker_available
 from coderking.sandbox.local import LocalProcessSandbox
+from coderking.sandbox.network import NetworkPolicy, resolve_network_mode
 
 
 async def create_sandbox(
@@ -35,11 +36,20 @@ async def create_sandbox(
     )
 
 
+def _network_policy(settings: Settings) -> NetworkPolicy:
+    mode = resolve_network_mode(
+        sandbox_network=settings.sandbox_network,
+        sandbox_network_mode=settings.sandbox_network_mode,
+    )
+    hosts = tuple(settings.sandbox_allow_hosts)
+    return NetworkPolicy(mode=mode, allow_hosts=hosts if mode == "restricted" else ())
+
+
 def _docker(workspace: Path, settings: Settings) -> DockerSandbox:
     return DockerSandbox(
         workspace,
         image=settings.sandbox_image,
         memory_mb=settings.sandbox_memory_mb,
         cpus=settings.sandbox_cpus,
-        network=settings.sandbox_network,
+        network_policy=_network_policy(settings),
     )

@@ -8,9 +8,10 @@ from uuid import uuid4
 
 from coderking.runtime.cancel import CancellationToken, CancelledTask
 from coderking.sandbox.base import ExecResult, Sandbox
-from coderking.sandbox.credentials import scrub_env
+from coderking.sandbox.credentials import is_secret_env_name
 from coderking.sandbox.job_manager import JobSnapshot
 from coderking.sandbox.local import _communicate, _kill
+from coderking.sandbox.network import AllowlistProxy, NetworkPolicy
 
 
 async def docker_available() -> bool:
@@ -31,12 +32,10 @@ async def docker_available() -> bool:
 
 
 def _docker_env_args(extra: dict[str, str] | None = None) -> list[str]:
-    """Never inherit host env; only pass scrubbed explicit extras + sandbox marker."""
-    cleaned = scrub_env(dict(extra or {}), allowlist_only=True)
+    """Never inherit host env; only explicit extras + sandbox marker."""
     args: list[str] = ["--env", "CODERKING_SANDBOX=1"]
-    for key, value in sorted(cleaned.items()):
-        if key == "PYTHONIOENCODING" and not extra:
-            # Marker-only default: avoid injecting host-unrelated defaults as docker -e.
+    for key, value in sorted((extra or {}).items()):
+        if is_secret_env_name(key):
             continue
         args.extend(["--env", f"{key}={value}"])
     return args
@@ -52,20 +51,31 @@ class DockerSandbox(Sandbox):
         image: str,
         memory_mb: int,
         cpus: float,
-        network: bool,
+        network: bool = False,
+        network_policy: NetworkPolicy | None = None,
         cancel: CancellationToken | None = None,
     ):
         self.workspace = workspace
         self.image = image
         self.memory_mb = memory_mb
         self.cpus = cpus
-        self.network = network
+        self.policy = network_policy or NetworkPolicy(mode="full" if network else "none")
+        self.network = self.policy.mode != "none"  # legacy flag for tests
         self.cancel = cancel
         self.last_args: list[str] = []
         self.last_container: str | None = None
+        self.last_denials: list[str] = []
         self._job_containers: dict[str, str] = {}
 
-    def build_args(self, command: str, container: str) -> list[str]:
+    def build_args(
+        self,
+        command: str,
+        container: str,
+        *,
+        proxy_url: str | None = None,
+    ) -> list[str]:
+        policy = self.policy.with_proxy_url(proxy_url) if proxy_url else self.policy
+        extra_env = policy.proxy_env()
         args = [
             "docker",
             "run",
@@ -79,14 +89,23 @@ class DockerSandbox(Sandbox):
             f"{self.workspace.resolve()}:/workspace",
             "-w",
             "/workspace",
-            *_docker_env_args(),
+            *_docker_env_args(extra_env),
+            *policy.docker_network_args(),
         ]
-        if not self.network:
-            args.extend(["--network", "none"])
+        if policy.needs_proxy:
+            args.extend(["--add-host", "host.docker.internal:host-gateway"])
         args.extend([self.image, "sh", "-lc", command])
         return args
 
-    def build_detached_args(self, command: str, container: str) -> list[str]:
+    def build_detached_args(
+        self,
+        command: str,
+        container: str,
+        *,
+        proxy_url: str | None = None,
+    ) -> list[str]:
+        policy = self.policy.with_proxy_url(proxy_url) if proxy_url else self.policy
+        extra_env = policy.proxy_env()
         args = [
             "docker",
             "run",
@@ -101,16 +120,30 @@ class DockerSandbox(Sandbox):
             f"{self.workspace.resolve()}:/workspace",
             "-w",
             "/workspace",
-            *_docker_env_args(),
+            *_docker_env_args(extra_env),
+            *policy.docker_network_args(),
         ]
-        if not self.network:
-            args.extend(["--network", "none"])
+        if policy.needs_proxy:
+            args.extend(["--add-host", "host.docker.internal:host-gateway"])
         args.extend([self.image, "sh", "-lc", command])
         return args
+
+    async def _proxy_url_for_container(self) -> tuple[str | None, AllowlistProxy | None]:
+        if not self.policy.needs_proxy:
+            return None, None
+        proxy = AllowlistProxy(self.policy, host="0.0.0.0")
+        await proxy.start()
+        assert proxy.port is not None
+        url = f"http://host.docker.internal:{proxy.port}"
+        return url, proxy
 
     async def start_job(self, command: str) -> str:
         if self.cancel:
             self.cancel.raise_if_cancelled()
+        if self.policy.needs_proxy:
+            raise RuntimeError(
+                "background jobs are not supported with sandbox_network_mode=restricted"
+            )
         job_id = uuid4().hex[:12]
         container = f"coderking-job-{job_id}"
         args = self.build_detached_args(command, container)
@@ -178,30 +211,37 @@ class DockerSandbox(Sandbox):
             self.cancel.raise_if_cancelled()
         container = f"coderking-{uuid4().hex[:12]}"
         self.last_container = container
-        args = self.build_args(command, container)
-        self.last_args = args
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        proxy_url, proxy = await self._proxy_url_for_container()
         try:
-            stdout_b, stderr_b = await _communicate(proc, timeout_sec, self.cancel)
-        except CancelledTask:
-            _kill(proc)
+            args = self.build_args(command, container, proxy_url=proxy_url)
+            self.last_args = args
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_b, stderr_b = await _communicate(proc, timeout_sec, self.cancel)
+            except CancelledTask:
+                _kill(proc)
+                await _rm_container(container)
+                raise
+            except TimeoutError:
+                _kill(proc)
+                await _rm_container(container)
+                return ExecResult(124, "", f"docker timeout after {timeout_sec}s", self.name)
             await _rm_container(container)
-            raise
-        except TimeoutError:
-            _kill(proc)
-            await _rm_container(container)
-            return ExecResult(124, "", f"docker timeout after {timeout_sec}s", self.name)
-        await _rm_container(container)
-        return ExecResult(
-            proc.returncode or 0,
-            stdout_b.decode("utf-8", errors="replace"),
-            stderr_b.decode("utf-8", errors="replace"),
-            self.name,
-        )
+            if proxy is not None:
+                self.last_denials = list(proxy.denials)
+            return ExecResult(
+                proc.returncode or 0,
+                stdout_b.decode("utf-8", errors="replace"),
+                stderr_b.decode("utf-8", errors="replace"),
+                self.name,
+            )
+        finally:
+            if proxy is not None:
+                await proxy.stop()
 
 
 async def _rm_container(name: str) -> None:

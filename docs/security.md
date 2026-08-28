@@ -34,10 +34,23 @@ run with a scrubbed environment and a secret-aware workspace clone.
   tool writes stay in `.coderking/cow/{task}/work` until promote.
 - Docker network defaults to off (`sandbox_network=false`); open only when needed.
 
+## Network policy
+
+| Mode | Behavior |
+|------|----------|
+| `none` (default) | Docker `--network none` |
+| `full` | Default bridge (legacy `sandbox_network=true`) |
+| `restricted` | Bridge + host allowlist proxy (`HTTP(S)_PROXY`) |
+
+Configure via `CODERKING_SANDBOX_NETWORK_MODE` / `sandbox_network_mode` and
+`CODERKING_SANDBOX_ALLOW_HOSTS` (comma-separated). Misconfigured `restricted`
+without hosts raises a clear `ValueError`.
+
 ## Verification
 
 ```bash
 python -m pytest -q tests/sandbox/test_credential_isolation.py
+python -m pytest -q tests/sandbox/test_network_policy.py
 ```
 
 CI asserts:

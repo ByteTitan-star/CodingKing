@@ -10,6 +10,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SandboxMode = Literal["auto", "docker", "local"]
+NetworkMode = Literal["none", "full", "restricted"]
 
 YAML_KEYS = (
     "openai_base_url",
@@ -20,6 +21,8 @@ YAML_KEYS = (
     "sandbox_memory_mb",
     "sandbox_cpus",
     "sandbox_network",
+    "sandbox_network_mode",
+    "sandbox_allow_hosts",
     "sandbox_image",
     "sandbox_cow",
     "sandbox_rollback_on_interrupt",
@@ -37,6 +40,8 @@ ENV_MAP = {
     "sandbox_memory_mb": "CODERKING_SANDBOX_MEMORY_MB",
     "sandbox_cpus": "CODERKING_SANDBOX_CPUS",
     "sandbox_network": "CODERKING_SANDBOX_NETWORK",
+    "sandbox_network_mode": "CODERKING_SANDBOX_NETWORK_MODE",
+    "sandbox_allow_hosts": "CODERKING_SANDBOX_ALLOW_HOSTS",
     "sandbox_image": "CODERKING_SANDBOX_IMAGE",
     "sandbox_cow": "CODERKING_SANDBOX_COW",
     "sandbox_rollback_on_interrupt": "CODERKING_SANDBOX_ROLLBACK_ON_INTERRUPT",
@@ -58,6 +63,19 @@ class Settings(BaseSettings):
     sandbox_memory_mb: int = 512
     sandbox_cpus: float = 1.0
     sandbox_network: bool = False
+    sandbox_network_mode: NetworkMode | None = None
+    sandbox_allow_hosts: list[str] = Field(
+        default_factory=lambda: [
+            "pypi.org",
+            "files.pythonhosted.org",
+            "pypi.python.org",
+            "registry.npmjs.org",
+            "registry.yarnpkg.com",
+            "github.com",
+            "codeload.github.com",
+            "objects.githubusercontent.com",
+        ]
+    )
     sandbox_image: str = "python:3.12-slim"
     sandbox_cow: bool = False
     sandbox_rollback_on_interrupt: bool = False
@@ -110,4 +128,8 @@ def load_settings(workspace: Path | None = None, **overrides: object) -> Setting
         if env_name in os.environ and os.environ[env_name] != "":
             data[field] = os.environ[env_name]
     data.update({k: v for k, v in overrides.items() if v is not None})
+    if isinstance(data.get("sandbox_allow_hosts"), str):
+        from coderking.sandbox.network import parse_allow_hosts
+
+        data["sandbox_allow_hosts"] = list(parse_allow_hosts(data["sandbox_allow_hosts"]))
     return Settings.model_validate(data)

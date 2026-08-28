@@ -4,6 +4,6 @@ from __future__ import annotations
 
 from coderking_sdk.session import AgentSession
 
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 
 __all__ = ["AgentSession", "__version__"]

@@ -174,9 +174,7 @@ async def run_agent_loop(
             ):
                 # Follow-up queue is checked in the outer loop before final exit.
                 follow_up_pending = (
-                    await config.get_follow_up_messages()
-                    if config.get_follow_up_messages
-                    else []
+                    await config.get_follow_up_messages() if config.get_follow_up_messages else []
                 )
                 if not follow_up_pending:
                     await emit({"type": "agent_end", "ok": True})

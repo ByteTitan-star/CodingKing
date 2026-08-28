@@ -11,6 +11,7 @@ from coderking import __version__
 from coderking.controller import CONTROLLER, TaskController
 from coderking.workspace import iter_files
 from coderking_coding_agent.context.project_docs import ProjectInstructionsLoader
+from coderking_coding_agent.context.skills import SkillRegistry
 
 
 def _web_dist() -> Path:
@@ -121,6 +122,11 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
     async def workspace_project_instructions(root: str = ".") -> dict:
         base = Path(root).resolve()
         return ProjectInstructionsLoader(base).inspect()
+
+    @app.get("/api/workspace/skills")
+    async def workspace_skills(root: str = ".") -> dict:
+        base = Path(root).resolve()
+        return SkillRegistry(base, include_cursor=False).inspect()
 
     @app.post("/api/tasks/{task_id}/approve")
     async def approve(task_id: str, body: ApprovalBody | None = None) -> dict:

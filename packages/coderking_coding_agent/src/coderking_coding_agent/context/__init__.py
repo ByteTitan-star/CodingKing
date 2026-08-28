@@ -7,6 +7,7 @@ from coderking_coding_agent.context.project_docs import (
     ProjectInstructionsLoader,
     inject_project_instructions,
 )
+from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
 from coderking_coding_agent.context.transform import ContextCompressor, make_transform_context
 
 __all__ = [
@@ -14,8 +15,10 @@ __all__ = [
     "ContextCompressor",
     "ProjectInstructions",
     "ProjectInstructionsLoader",
+    "SkillRegistry",
     "TokenBudget",
     "estimate_messages_tokens",
+    "inject_matching_skills",
     "inject_project_instructions",
     "make_transform_context",
     "phase_a_compress",

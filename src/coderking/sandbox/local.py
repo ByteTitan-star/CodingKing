@@ -5,6 +5,7 @@ from pathlib import Path
 
 from coderking.runtime.cancel import CancellationToken, CancelledTask
 from coderking.sandbox.base import ExecResult, Sandbox
+from coderking.sandbox.job_manager import JobManager, JobSnapshot
 
 
 class LocalProcessSandbox(Sandbox):
@@ -15,6 +16,19 @@ class LocalProcessSandbox(Sandbox):
     def __init__(self, workspace: Path, cancel: CancellationToken | None = None):
         self.workspace = workspace
         self.cancel = cancel
+        self._jobs = JobManager(workspace, cancel=cancel)
+
+    async def start_job(self, command: str) -> str:
+        return await self._jobs.start(command)
+
+    def poll_job(self, job_id: str) -> JobSnapshot:
+        return self._jobs.poll(job_id)
+
+    async def kill_job(self, job_id: str) -> bool:
+        return await self._jobs.kill(job_id)
+
+    async def kill_all_jobs(self) -> None:
+        await self._jobs.kill_all()
 
     async def run(self, command: str, *, timeout_sec: int) -> ExecResult:
         if self.cancel:

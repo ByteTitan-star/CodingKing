@@ -63,4 +63,4 @@ scripts/check_layer_deps.py
 - [x] 无环依赖（边界脚本覆盖）
 - [x] Facade `workspace` + file/read/edit tools 迁入 L2（薄 re-export）
 - [x] Facade `sandbox` / shell / `diffing` + cancel → L1/L2（薄 re-export；manager 适配 Settings）
-- [ ] Facade `runtime/loop` harness 迁入 L2 / 调用 L1 Agent（Epic 收尾）
+- [x] Facade `runtime/*` SWE harness → L2（`HarnessConfig` + `HarnessBindings`；`AgentRuntime` facade 接线）

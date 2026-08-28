@@ -7,12 +7,14 @@ from coderking_coding_agent.extensions import Extension, ExtensionRegistry
 SWE_EXTENSION = Extension(
     name="swe",
     description=(
-        "Software-engineering harness: 5 roles, git/test/search tools, and meta workflow tools."
+        "Software-engineering harness: 5 roles, git/test/search tools, and meta workflow tools. "
+        "Runtime: coderking_coding_agent.runtime.loop.AgentRuntime."
     ),
     register=lambda _ctx: None,
     metadata={
         "tool_profile": "swe",
         "roles": ["planner", "coding", "execution", "reviewer", "repair"],
+        "runtime": "coderking_coding_agent.runtime.loop.AgentRuntime",
     },
 )
 

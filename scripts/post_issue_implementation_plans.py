@@ -14,7 +14,7 @@ PI_AGENT_LOOP = f"{PI}/blob/main/packages/agent/src/agent-loop.ts"
 PI_AGENT = f"{PI}/blob/main/packages/agent/src/agent.ts"
 
 COMMENTS: dict[int, str] = {
-    22: f"""## 生产级实现方案
+    22: """## 生产级实现方案
 
 ### Pi 参考
 Pi 不在 core loop 内做 E2E，但 `eval/` 与真实 provider 集成是发布门禁。参考 Pi 的 `packages/coding-agent` 在 CI 中对多 provider 的 smoke test 思路：**真实 API 调用 + 固定 fixture repo + 确定性断言**。
@@ -172,7 +172,7 @@ class AgentLoopConfig:
 - ❌ 在 L1 保留 `Role.PLANNER` 等枚举
 - ❌ 单文件 800 行 loop 不拆分
 """,
-    25: f"""## 生产级实现方案 — L0 LLM Streaming + Retry
+    25: """## 生产级实现方案 — L0 LLM Streaming + Retry
 
 ### Pi 参考
 - `packages/ai`：`streamFunction(model, context, options)` 返回 async iterator
@@ -222,7 +222,7 @@ async def complete(...) -> LLMResponse:  # 内部 aggregate stream
 - ❌ 伪 streaming（等完整响应再 chunk 打印）
 - ❌ 无限 retry
 """,
-    42: f"""## 生产级实现方案 — 显式五阶段 FSM
+    42: """## 生产级实现方案 — 显式五阶段 FSM
 
 ### Pi 参考
 Pi 不显式命名五阶段，但每 turn 可映射：
@@ -272,7 +272,7 @@ class LoopPhase(StrEnum):
 ### 依赖
 - #24 L1 拆分完成后嵌入 FSM
 """,
-    26: f"""## 生产级实现方案 — Edit 工具
+    26: """## 生产级实现方案 — Edit 工具
 
 ### Pi 参考
 Pi `edit` 工具：**严格字符串替换**，执行前校验 `old_string` 在文件中**恰好出现 1 次**；0 次或多于 1 次 → 结构化错误，要求模型提供更多上下文行。可选 fuzzy match 仅用于 whitespace 差异。
@@ -282,12 +282,12 @@ Pi `edit` 工具：**严格字符串替换**，执行前校验 `old_string` 在�
 ```python
 class EditFileTool(Tool):
     name = "edit"
-    parameters = {{
+    parameters = {
         "path": str,
         "old_string": str,
         "new_string": str,
         "replace_all": bool = False,  # 默认 False，True 时要求明确 opt-in
-    }}
+    }
 ```
 
 **2. 核心算法** (`tools/edit.py`)
@@ -321,7 +321,7 @@ class EditFileTool(Tool):
 - ❌ AST rewrite（白皮书明确拒绝）
 - ❌ LLM 全量覆写冒充 edit
 """,
-    27: f"""## 生产级实现方案 — JSONL 树状会话
+    27: """## 生产级实现方案 — JSONL 树状会话
 
 ### Pi 参考
 Pi coding-agent Session v4：`SessionRepo` append-only JSONL，每行一个 node，`id` + `parentId` + `head` pointer，支持 branch/fork 不删历史。
@@ -339,9 +339,9 @@ class SessionNode:
 ```
 
 **2. SessionRepo** (`coding_agent/session/repo.py`)
-- 文件：`.coderking/sessions/{{session_id}}.jsonl`
+- 文件：`.coderking/sessions/{session_id}.jsonl`
 - `append(node)`：fsync 每行（或 batch + fsync every N ms 可配置）
-- `head` 存 `.coderking/sessions/{{session_id}}.head` 单行 JSON
+- `head` 存 `.coderking/sessions/{session_id}.head` 单行 JSON
 - `branch_to(node_id)`：移动 head，不删后续行
 - `walk_to_head()`：从 root 沿 parent 链到 head，O(depth)
 - 崩溃恢复：tail 损坏时 truncate 到最后合法 JSON line
@@ -368,7 +368,7 @@ class SessionNode:
 - ❌ SQLite 存全量 messages（失去 append-only 崩溃安全）
 - ❌ 仅 flat JSON array
 """,
-    28: f"""## 生产级实现方案 — 动态上下文压缩
+    28: """## 生产级实现方案 — 动态上下文压缩
 
 ### Pi 参考
 - L1 hook：`transformContext(messages, signal)` 在 **每次 LLM 调用前**执行
@@ -383,7 +383,7 @@ class SessionNode:
 - **Phase A（确定性）**：保留 system + 最近 K turns + 所有 edit 涉及的文件当前内容
 - **Phase B（LLM 摘要）**：对 early tool outputs 调用 fast model，输出结构化 JSON：
   ```json
-  {{"decisions":[],"errors":[],"open_tasks":[],"files_touched":[]}}
+  {"decisions":[],"errors":[],"open_tasks":[],"files_touched":[]}
   ```
 - 摘要写入 SessionRepo compression node（#27）
 - 后续 `materialize()` 展开为一条 `role=system` 的 compression message
@@ -408,7 +408,7 @@ class SessionNode:
 - ❌ 粗暴 truncate 最后 N 条
 - ❌ 同步阻塞 loop 30s+ 无 timeout
 """,
-    29: f"""## 生产级实现方案 — AGENTS.md / SYSTEM.md
+    29: """## 生产级实现方案 — AGENTS.md / SYSTEM.md
 
 ### Pi 参考
 Pi 启动加载项目根 `AGENTS.md`，作为 **渐进式披露** 的一部分，不写入 10k system prompt。
@@ -439,13 +439,13 @@ Pi 启动加载项目根 `AGENTS.md`，作为 **渐进式披露** 的一部分�
 - #31 极简 prompt 策略
 - #24 L2 hook 挂载点
 """,
-    30: f"""## 生产级实现方案 — Skills 延迟加载
+    30: """## 生产级实现方案 — Skills 延迟加载
 
 ### Pi 参考
 Pi extensions/skills：能力打包为模块，**判定需要时**才注入详细指令（见 coding-agent extensions 体系）。
 
 ### 下一步
-**1. Skill 清单格式** (`.coderking/skills/{{name}}/SKILL.md`)
+**1. Skill 清单格式** (`.coderking/skills/{name}/SKILL.md`)
 ```yaml
 ---
 name: swe-repair
@@ -476,7 +476,7 @@ max_inject_tokens: 2000
 - #29 渐进式披露
 - #28 压缩时保留已激活 skill 摘要
 """,
-    31: f"""## 生产级实现方案 — 极简 System Prompt
+    31: """## 生产级实现方案 — 极简 System Prompt
 
 ### Pi 参考
 Pi ~150 word system prompt：身份 + 四工具 + 安全约束。**不**预注入 repo 全文。
@@ -507,7 +507,7 @@ Pi ~150 word system prompt：身份 + 四工具 + 安全约束。**不**预注�
 - #29 #30
 - #38 四工具迁移后 prompt 只描述 4 tools
 """,
-    38: f"""## 生产级实现方案 — 四原子工具架构迁移
+    38: """## 生产级实现方案 — 四原子工具架构迁移
 
 ### Pi 参考
 仅 Read / Write / Edit / Bash。Git、Test、Search 通过 Bash + 项目脚本或 extensions 提供。
@@ -544,7 +544,7 @@ Pi ~150 word system prompt：身份 + 四工具 + 安全约束。**不**预注�
 ### 依赖
 - #24 #26 #39 #40
 """,
-    39: f"""## 生产级实现方案 — Read 工具增强
+    39: """## 生产级实现方案 — Read 工具增强
 
 ### Pi 参考
 Read 支持：行号输出、offset/limit、glob 批量、图片 base64（vision model）。
@@ -552,16 +552,16 @@ Read 支持：行号输出、offset/limit、glob 批量、图片 base64（vision
 ### 下一步
 **1. Schema 扩展**
 ```python
-{{
+{
   "path": str,              # file or directory
   "offset": int = 1,
   "limit": int = 2000,      # lines
   "glob": str | None,       # when path is dir
-}}
+}
 ```
 
 **2. 实现** (`tools/read.py`)
-- 单文件：返回 `{{line_no}}|{{content}}`（1-based，Pi 风格）
+- 单文件：返回 `{line_no}|{content}`（1-based，Pi 风格）
 - 目录+glob：最多 50 files，每 file 最多 500 lines，总输出 cap 100KB
 - 图片：`.png/.jpg/.webp` → base64 + mime，返回 `type=image` content block（对接 L0 multimodal message）
 - 二进制非图片：拒绝 + suggest bash `file`
@@ -577,7 +577,7 @@ Read 支持：行号输出、offset/limit、glob 批量、图片 base64（vision
 ### 依赖
 - #38 rename read_file → read
 """,
-    40: f"""## 生产级实现方案 — Bash 异步后台 Job
+    40: """## 生产级实现方案 — Bash 异步后台 Job
 
 ### Pi 参考
 Bash 支持 long-running：后台启动 + poll output，防止 dev server 阻塞 loop。
@@ -585,7 +585,7 @@ Bash 支持 long-running：后台启动 + poll output，防止 dev server 阻塞
 ### 下一步
 **1. JobManager** (`sandbox/job_manager.py`)
 - `start(command) -> job_id`：sandbox 内 `nohup`/detached 或 docker exec -d
-- `poll(job_id) -> {{status, stdout_tail, stderr_tail, exit_code?}}`
+- `poll(job_id) -> {status, stdout_tail, stderr_tail, exit_code?}`
 - `kill(job_id)`
 - TTL：默认 1h 自动 cleanup
 
@@ -645,7 +645,7 @@ agent.steer(AgentMessage(role="user", content="停止改 A，先修 B"))
 ### 依赖
 - #24 L1 Agent 类
 """,
-    33: f"""## 生产级实现方案 — Follow-up 跟进队列
+    33: """## 生产级实现方案 — Follow-up 跟进队列
 
 ### Pi 参考
 `followUp(message)` → 仅当 agent **would stop**（无 tool、无 steering）时 outer loop drain follow-up，作为新 turn 输入。
@@ -682,7 +682,7 @@ while True:
 ### 依赖
 - #24 #32
 """,
-    34: f"""## 生产级实现方案 — RPC JSONL over Stdio
+    34: """## 生产级实现方案 — RPC JSONL over Stdio
 
 ### Pi 参考
 - `packages/coding-agent/src/rpc-entry.ts`
@@ -692,8 +692,8 @@ while True:
 ### 下一步
 **1. 协议** (`transport/rpc/protocol.md`)
 ```jsonl
-{{"jsonrpc":"2.0","id":1,"method":"agent.prompt","params":{{"text":"fix bug"}}}}
-{{"jsonrpc":"2.0","method":"agent.event","params":{{"type":"tool_execution_start",...}}}}
+{"jsonrpc":"2.0","id":1,"method":"agent.prompt","params":{"text":"fix bug"}}
+{"jsonrpc":"2.0","method":"agent.event","params":{"type":"tool_execution_start",...}}
 ```
 
 **2. 方法集**
@@ -718,7 +718,7 @@ while True:
 - #24 L1 Agent
 - #49 Desktop
 """,
-    35: f"""## 生产级实现方案 — SSE EventStream API
+    35: """## 生产级实现方案 — SSE EventStream API
 
 ### Pi 参考
 Pi Web/server 模式暴露 event stream；CoderKing 可对齐 SSE 便于 Serverless/CDN。
@@ -726,9 +726,9 @@ Pi Web/server 模式暴露 event stream；CoderKing 可对齐 SSE 便于 Serverl
 ### 下一步
 **1. Endpoint**
 ```
-GET /api/v2/tasks/{{id}}/events
+GET /api/v2/tasks/{id}/events
 Accept: text/event-stream
-Last-Event-ID: {{node_id}}  # 断线重连
+Last-Event-ID: {node_id}  # 断线重连
 ```
 
 **2. 实现** (`transport/http/sse.py`)
@@ -751,10 +751,10 @@ Last-Event-ID: {{node_id}}  # 断线重连
 - #24 event schema 稳定
 - #27 node id 作 SSE id
 """,
-    43: f"""## 生产级实现方案 — Safety Policy Engine
+    43: """## 生产级实现方案 — Safety Policy Engine
 
 ### Pi 参考
-Pi `beforeToolCall` hook：返回 `{{action: "allow"|"deny"|"ask", reason}}` 统一门禁。
+Pi `beforeToolCall` hook：返回 `{action: "allow"|"deny"|"ask", reason}` 统一门禁。
 
 ### 下一步
 **1. PolicyEngine** (`coding_agent/safety/policy.py`)
@@ -787,7 +787,7 @@ tools:
 ### 依赖
 - #24 beforeToolCall hook
 """,
-    45: f"""## 生产级实现方案 — Copy-on-Write 文件系统
+    45: """## 生产级实现方案 — Copy-on-Write 文件系统
 
 ### 下一步（生产级）
 **1. SandboxBackend 扩展**
@@ -816,7 +816,7 @@ class WorkspaceSnapshot(Protocol):
 ### 依赖
 - Docker sandbox (#7 done)
 """,
-    46: f"""## 生产级实现方案 — 沙盒网络域名白名单
+    46: """## 生产级实现方案 — 沙盒网络域名白名单
 
 ### 下一步
 **1. NetworkPolicy**
@@ -843,7 +843,7 @@ sandbox:
 ### 依赖
 - Docker (#7)
 """,
-    47: f"""## 生产级实现方案 — 凭据与沙盒完全隔离
+    47: """## 生产级实现方案 — 凭据与沙盒完全隔离
 
 ### 下一步
 **1. Mount 策略**
@@ -866,7 +866,7 @@ sandbox:
 ### 依赖
 - #45 volume 隔离增强
 """,
-    36: f"""## 生产级实现方案 — SDK 嵌入模式
+    36: """## 生产级实现方案 — SDK 嵌入模式
 
 ### Pi 参考
 `packages/coding-agent/src/index.ts` 导出 `Agent`、`createAgentSession` 供 programmatic 使用。
@@ -897,7 +897,7 @@ async with AgentSession(workspace=".", model="...") as session:
 ### 依赖
 - #24 #27 #38
 """,
-    37: f"""## 生产级实现方案 — MCP 集成
+    37: """## 生产级实现方案 — MCP 集成
 
 ### 规范
 Anthropic MCP：JSON-RPC 2.0，Tools/Resources/Prompts 三原语。
@@ -906,7 +906,7 @@ Anthropic MCP：JSON-RPC 2.0，Tools/Resources/Prompts 三原语。
 **1. McpHost** (`coding_agent/mcp/host.py`)
 - 配置 `.coderking/mcp.json` servers list
 - 每 server 独立 subprocess（stdio transport）+ lifecycle supervise
-- 启动：`initialize` → `tools/list` → merge schema 到 L1 tools（namespace `mcp_{{server}}_{{tool}}`）
+- 启动：`initialize` → `tools/list` → merge schema 到 L1 tools（namespace `mcp_{server}_{tool}`）
 
 **2. 路由**
 - L1 tool call → `McpHost.call_tool(server, name, args)`
@@ -928,7 +928,7 @@ Anthropic MCP：JSON-RPC 2.0，Tools/Resources/Prompts 三原语。
 - #24 L1 tool dispatch
 - #43 policy for external tools
 """,
-    41: f"""## 生产级实现方案 — Agent 自扩展工具
+    41: """## 生产级实现方案 — Agent 自扩展工具
 
 ### Pi 参考
 四工具哲学：Agent 用 Bash 写脚本到 `.pi/tools/` 再执行，无需内置浏览器/DB 框架。
@@ -936,7 +936,7 @@ Anthropic MCP：JSON-RPC 2.0，Tools/Resources/Prompts 三原语。
 ### 下一步
 **1. 约定目录**
 ```
-.coderking/tools/{{name}}/
+.coderking/tools/{name}/
   tool.yaml      # schema + entry script
   main.py|sh
 ```
@@ -961,7 +961,7 @@ Anthropic MCP：JSON-RPC 2.0，Tools/Resources/Prompts 三原语。
 - #40 bash background 可选
 - #43 policy
 """,
-    44: f"""## 生产级实现方案 — Micro-VM 沙盒
+    44: """## 生产级实现方案 — Micro-VM 沙盒
 
 ### 下一步（企业级，Phase 4+）
 **1. Backend 抽象**
@@ -990,7 +990,7 @@ class SandboxBackend(Protocol):
 - #45 CoW
 - #47 凭据隔离
 """,
-    48: f"""## 生产级实现方案 — Interactive TUI
+    48: """## 生产级实现方案 — Interactive TUI
 
 ### Pi 参考
 `packages/tui`：retained-mode differential render，不 flicker。
@@ -1017,7 +1017,7 @@ class SandboxBackend(Protocol):
 - #25 streaming
 - #32 steer
 """,
-    49: f"""## 生产级实现方案 — Desktop IPC 全链路
+    49: """## 生产级实现方案 — Desktop IPC 全链路
 
 ### Pi 参考
 Desktop spawn `pi rpc` / rpc-entry，stdio JSONL 双向。
@@ -1026,8 +1026,8 @@ Desktop spawn `pi rpc` / rpc-entry，stdio JSONL 双向。
 **1. Electron 主进程**
 ```javascript
 const child = spawn('coderking', ['rpc', '--workspace', dir]);
-readline.createInterface({{input: child.stdout}}).on('line', forwardToRenderer);
-ipcMain.handle('agent:prompt', (_, text) => rpc.call('agent.prompt', {{text}}));
+readline.createInterface({input: child.stdout}).on('line', forwardToRenderer);
+ipcMain.handle('agent:prompt', (_, text) => rpc.call('agent.prompt', {text}));
 ```
 
 **2. Preload 安全桥**

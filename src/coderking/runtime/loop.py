@@ -6,11 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from coderking.config import Settings
-from coderking.context.bm25 import BM25Index
-from coderking.context.scanner import scan_repository
 from coderking.diffing import snapshot_workspace, unified_diff
 from coderking.llm.provider import LLMProvider, LLMResponse, ToolCall
 from coderking.memory.store import MemoryStore
+from coderking.prompts.loader import resolve_system_prompt
 from coderking.registry import cancel_requested, persist_state
 from coderking.runtime.cancel import CancellationToken, CancelledTask
 from coderking.runtime.events import (
@@ -30,7 +29,7 @@ from coderking.runtime.events import (
     tool_event,
 )
 from coderking.runtime.queues import RunMessageQueues
-from coderking.runtime.roles import ROLE_TOOLS, SYSTEM_PROMPTS
+from coderking.runtime.roles import ROLE_TOOLS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
@@ -85,21 +84,11 @@ class AgentRuntime:
             tools["run_tests"] = RunTestsTool(
                 sandbox, self.settings.sandbox_timeout_sec, default_command=test_command
             )
-        summary = scan_repository(workspace)
-        try:
-            index = BM25Index(workspace)
-            retrieved = index.search(prompt)
-            context_hint = "\n".join(f"{path} ({score:.2f})" for path, score in retrieved)
-        except OSError:
-            context_hint = ""
         if not state.messages:
             state.messages = [
                 {
                     "role": "system",
-                    "content": SYSTEM_PROMPTS[state.role]
-                    + "\n\nRepository summary:\n"
-                    + summary
-                    + ("\n\nBM25 hits:\n" + context_hint if context_hint else ""),
+                    "content": resolve_system_prompt(self.settings, state.role),
                 },
                 {"role": "user", "content": prompt},
             ]
@@ -108,7 +97,9 @@ class AgentRuntime:
             state.role = Role.PLANNER
             state.iteration = 0
             state.status = TaskStatus.RUNNING
-            state.messages.append({"role": "system", "content": SYSTEM_PROMPTS[Role.PLANNER]})
+            state.messages.append(
+                {"role": "system", "content": resolve_system_prompt(self.settings, Role.PLANNER)}
+            )
         await on_event(status_event(state.role, state.status))
         try:
             while state.iteration < self.settings.max_iterations:

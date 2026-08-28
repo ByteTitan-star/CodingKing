@@ -19,14 +19,17 @@ from coderking.runtime.events import (
     done_event,
     error_event,
     file_event,
+    follow_up_event,
     plan_event,
     sandbox_event,
     status_event,
+    steer_event,
     terminal_event,
     test_event,
     token_event,
     tool_event,
 )
+from coderking.runtime.queues import RunMessageQueues
 from coderking.runtime.roles import ROLE_TOOLS, SYSTEM_PROMPTS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.manager import create_sandbox
@@ -50,6 +53,7 @@ class AgentRuntime:
         self.llm = llm
         self.memory = memory
         self.cancel = cancel or CancellationToken()
+        self._run_queues: RunMessageQueues | None = None
 
     async def run(
         self,
@@ -61,9 +65,11 @@ class AgentRuntime:
         auto_approve: bool = False,
         test_command: str | None = None,
         state: AgentState | None = None,
+        queues: RunMessageQueues | None = None,
     ) -> AgentState:
         workspace = workspace.resolve()
         state = state or AgentState(task=prompt, repository=str(workspace))
+        self._run_queues = queues
         if not state.snapshot:
             state.snapshot = snapshot_workspace(workspace)
         state.status = TaskStatus.RUNNING
@@ -122,6 +128,8 @@ class AgentRuntime:
                     return state
                 persist_state(workspace, state)
                 state.iteration += 1
+                if queues:
+                    await _inject_steering(state, queues, on_event)
                 allowed = ROLE_TOOLS[state.role]
                 schemas = [tools[name].schema() for name in allowed if name in tools]
                 complete = self.llm.complete
@@ -144,7 +152,8 @@ class AgentRuntime:
                         return state
                     continue
                 state.messages.append(_assistant_tool_message(response))
-                for call in response.tool_calls:
+                tool_calls = list(response.tool_calls)
+                for index, call in enumerate(tool_calls):
                     self.cancel.raise_if_cancelled()
                     if state.status == TaskStatus.INTERRUPTED:
                         break
@@ -157,6 +166,15 @@ class AgentRuntime:
                         auto_approve,
                         workspace,
                     )
+                    if queues:
+                        steered = await queues.drain_steering()
+                        if steered:
+                            await _inject_steering_messages(state, steered, on_event)
+                            for rem in tool_calls[index + 1 :]:
+                                skipped = f'Tool "{rem.name}" skipped due to steering.'
+                                state.messages.append(_tool_message(rem, skipped))
+                                await on_event(tool_event(rem.name, "skipped", preview=skipped))
+                            break
                 if state.status in {
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
@@ -179,6 +197,7 @@ class AgentRuntime:
             await on_event(done_event(False, str(exc)))
             return state
         finally:
+            self._run_queues = None
             await sandbox.close()
             state.sandbox_status = "idle"
             persist_state(workspace, state)
@@ -295,8 +314,15 @@ class AgentRuntime:
         await self._succeed_task(state, on_event, workspace, summary)
 
     async def _succeed_task(
-        self, state: AgentState, on_event: EventSink, workspace: Path, summary: str
+        self,
+        state: AgentState,
+        on_event: EventSink,
+        workspace: Path,
+        summary: str,
     ) -> None:
+        queues = self._run_queues
+        if queues and await _inject_follow_up(state, queues, on_event):
+            return
         state.mark_plan_complete()
         await on_event(plan_event([{"title": i.title, "done": i.done} for i in state.plan]))
         state.status = TaskStatus.SUCCEEDED
@@ -366,3 +392,39 @@ def _assistant_tool_message(response: LLMResponse) -> dict[str, Any]:
 
 def _tool_message(call: ToolCall, output: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call.id, "content": output}
+
+
+async def _inject_steering_messages(
+    state: AgentState,
+    items: list[str],
+    on_event: EventSink,
+) -> None:
+    for text in items:
+        state.messages.append({"role": "user", "content": f"[steer] {text}"})
+        await on_event(steer_event(text))
+
+
+async def _inject_steering(
+    state: AgentState,
+    queues: RunMessageQueues,
+    on_event: EventSink,
+) -> None:
+    items = await queues.drain_steering()
+    if items:
+        await _inject_steering_messages(state, items, on_event)
+
+
+async def _inject_follow_up(
+    state: AgentState,
+    queues: RunMessageQueues,
+    on_event: EventSink,
+) -> bool:
+    items = await queues.drain_follow_up()
+    if not items:
+        return False
+    for text in items:
+        state.messages.append({"role": "user", "content": f"[follow-up] {text}"})
+        await on_event(follow_up_event(text))
+    state.status = TaskStatus.RUNNING
+    await on_event(status_event(state.role, state.status))
+    return True

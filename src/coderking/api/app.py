@@ -28,6 +28,14 @@ class TaskCreate(BaseModel):
     test_command: str | None = None
 
 
+class SteerBody(BaseModel):
+    content: str
+
+
+class FollowUpBody(BaseModel):
+    content: str
+
+
 class ApprovalBody(BaseModel):
     allowed: bool = Field(..., alias="allowed")
 
@@ -133,8 +141,26 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             raise HTTPException(404, "task not found") from exc
         return {"ok": True}
 
+    @app.post("/api/tasks/{task_id}/steer")
+    async def steer_task(task_id: str, body: SteerBody) -> dict:
+        try:
+            await ctrl.steer(task_id, body.content)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        return {"ok": True}
+
+    @app.post("/api/tasks/{task_id}/follow-up")
+    async def follow_up_task(task_id: str, body: FollowUpBody) -> dict:
+        try:
+            await ctrl.follow_up(task_id, body.content)
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        return {"ok": True}
+
     @app.websocket("/ws/tasks/{task_id}")
     async def task_ws(websocket: WebSocket, task_id: str) -> None:
+        import asyncio
+
         await websocket.accept()
         try:
             task = ctrl.get(task_id)
@@ -144,6 +170,21 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             return
         for event in task.snapshot:
             await websocket.send_json(event)
+
+        async def read_client() -> None:
+            try:
+                while True:
+                    data = await websocket.receive_json()
+                    msg_type = str(data.get("type") or "")
+                    content = str(data.get("content") or "")
+                    if msg_type == "steer":
+                        await ctrl.steer(task_id, content)
+                    elif msg_type in {"follow_up", "follow-up"}:
+                        await ctrl.follow_up(task_id, content)
+            except WebSocketDisconnect:
+                return
+
+        reader = asyncio.create_task(read_client())
         try:
             async for event in ctrl.subscribe(task_id):
                 await websocket.send_json(event.as_dict())
@@ -151,6 +192,8 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             return
         except KeyError:
             await websocket.close()
+        finally:
+            reader.cancel()
 
     dist = _web_dist()
     if dist.is_dir():

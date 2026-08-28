@@ -1,0 +1,11 @@
+name: browser_smoke
+description: Print a smoke-test message for browser automation scaffolding.
+entry: main.py
+parameters:
+  type: object
+  properties:
+    url:
+      type: string
+      description: Target URL to mention in the smoke output
+  required:
+    - url

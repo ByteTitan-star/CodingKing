@@ -47,6 +47,18 @@ def init(
     """Create .coderking/config.yaml, policy.yaml, and AGENTS.md template in the workspace."""
     root = _workspace(workspace)
     (root / ".coderking" / "memory").mkdir(parents=True, exist_ok=True)
+    tools_root = root / ".coderking" / "tools"
+    tools_root.mkdir(parents=True, exist_ok=True)
+    example = tools_root / "browser_smoke"
+    if not example.exists():
+        template_root = Path(__file__).resolve().parent / "templates" / "tools" / "browser_smoke"
+        if template_root.is_dir():
+            example.mkdir(parents=True, exist_ok=True)
+            for name in ("tool.yaml", "main.py"):
+                src = template_root / name
+                if src.is_file():
+                    (example / name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            console.print(f"created example dynamic tool at {example}")
     if not config_yaml_path(root).exists():
         write_yaml_config(
             root,

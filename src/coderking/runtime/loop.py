@@ -8,6 +8,7 @@ from typing import Any
 from coderking.config import Settings
 from coderking.diffing import snapshot_workspace, unified_diff
 from coderking.llm.provider import LLMProvider, LLMResponse, ToolCall
+from coderking.mcp.host import McpHost
 from coderking.memory.store import MemoryStore
 from coderking.prompts.loader import resolve_system_prompt
 from coderking.registry import cancel_requested, persist_state
@@ -102,6 +103,7 @@ class AgentRuntime:
         )
         skill_registry = SkillRegistry(source, include_cursor=False)
         policy_engine = PolicyEngine.load(source)
+        mcp_host: McpHost | None = None
         if test_command:
             from coderking.tools.test import RunTestsTool
 
@@ -153,6 +155,8 @@ class AgentRuntime:
             )
 
         try:
+            mcp_host = await McpHost.connect(source)
+            tools.update(mcp_host.tools())
             while state.iteration < self.settings.max_iterations:
                 self.cancel.raise_if_cancelled()
                 if cancel_requested(source, state.task_id):
@@ -200,7 +204,8 @@ class AgentRuntime:
                     )
                 await fsm.advance(LoopEvent.CONTEXT_READY, on_phase_change=emit_phase)
                 tools.update(wrap_dynamic_tools(dynamic_loader.refresh()))
-                allowed = ROLE_TOOLS[state.role] | dynamic_loader.names()
+                mcp_names = {n for n in tools if n.startswith("mcp_")}
+                allowed = ROLE_TOOLS[state.role] | dynamic_loader.names() | mcp_names
                 schemas = [tools[name].schema() for name in allowed if name in tools]
                 complete = self.llm.complete
                 try:
@@ -281,6 +286,8 @@ class AgentRuntime:
             return state
         finally:
             self._run_queues = None
+            if mcp_host is not None:
+                await mcp_host.close()
             await sandbox.close()
             state.sandbox_status = "idle"
             if cow is not None:
@@ -307,11 +314,16 @@ class AgentRuntime:
             tools.update(wrap_dynamic_tools(dynamic_loader.refresh()))
             tool = tools.get(call.name)
         dynamic_names = dynamic_loader.names()
+        mcp_names = {n for n in tools if n.startswith("mcp_")}
         await on_event(tool_event(call.name, "running", arguments=call.arguments))
         if tool is None:
             output = f"unknown tool: {call.name}"
             ok = False
-        elif call.name not in ROLE_TOOLS[state.role] and call.name not in dynamic_names:
+        elif (
+            call.name not in ROLE_TOOLS[state.role]
+            and call.name not in dynamic_names
+            and call.name not in mcp_names
+        ):
             output = f"tool {call.name} is not allowed in role {state.role}"
             ok = False
         else:

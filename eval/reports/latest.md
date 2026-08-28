@@ -1,6 +1,6 @@
 # CoderKing eval report (`latest`)
 
-Generated: 2026-08-28T03:58:35.425465+00:00
+Generated: 2026-08-28T04:54:20.952338+00:00
 
 ## Summary
 

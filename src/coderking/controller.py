@@ -23,11 +23,12 @@ from coderking.workspace import ensure_inside, iter_files
 class ManagedTask:
     state: AgentState
     workspace: Path
-    events: asyncio.Queue[AgentEvent | None] = field(default_factory=asyncio.Queue)
+    events: asyncio.Queue[dict[str, Any] | None] = field(default_factory=asyncio.Queue)
     approval: asyncio.Future[bool] | None = None
     cancel: CancellationToken = field(default_factory=CancellationToken)
     snapshot: list[dict[str, Any]] = field(default_factory=list)
     queues: RunMessageQueues = field(default_factory=RunMessageQueues)
+    event_seq: int = 0
 
 
 class TaskController:
@@ -44,6 +45,12 @@ class TaskController:
             memory=MemoryStore(memory_path),
             cancel=cancel,
         )
+
+    def _record_event(self, task: ManagedTask, event: AgentEvent) -> dict[str, Any]:
+        task.event_seq += 1
+        record = {"id": f"{task.state.task_id}-{task.event_seq:06d}", **event.as_dict()}
+        task.snapshot.append(record)
+        return record
 
     async def create_task(
         self,
@@ -63,8 +70,8 @@ class TaskController:
             self.tasks[managed.state.task_id] = managed
 
         async def on_event(event: AgentEvent) -> None:
-            managed.snapshot.append(event.as_dict())
-            await managed.events.put(event)
+            record = self._record_event(managed, event)
+            await managed.events.put(record)
 
         async def approve(_tool: str, _reason: str, _args: dict[str, Any]) -> bool:
             loop = asyncio.get_running_loop()
@@ -112,14 +119,16 @@ class TaskController:
         task.queues.enqueue_steer(content)
         from coderking.runtime.events import steer_event
 
-        await task.events.put(steer_event(content))
+        record = self._record_event(task, steer_event(content))
+        await task.events.put(record)
 
     async def follow_up(self, task_id: str, content: str) -> None:
         task = self.get(task_id)
         task.queues.enqueue_follow_up(content)
         from coderking.runtime.events import follow_up_event
 
-        await task.events.put(follow_up_event(content))
+        record = self._record_event(task, follow_up_event(content))
+        await task.events.put(record)
 
     def rollback(self, task_id: str) -> None:
         task = self.get(task_id)
@@ -130,13 +139,17 @@ class TaskController:
         task = self.get(task_id)
         return unified_diff(task.workspace, task.state.snapshot)
 
-    async def subscribe(self, task_id: str) -> AsyncIterator[AgentEvent]:
+    async def subscribe_records(self, task_id: str) -> AsyncIterator[dict[str, Any]]:
         task = self.get(task_id)
         while True:
-            event = await task.events.get()
-            if event is None:
+            record = await task.events.get()
+            if record is None:
                 break
-            yield event
+            yield record
+
+    async def subscribe(self, task_id: str) -> AsyncIterator[AgentEvent]:
+        async for record in self.subscribe_records(task_id):
+            yield AgentEvent(record["type"], record.get("payload", {}))
 
     def tree(self, task_id: str) -> list[str]:
         task = self.get(task_id)

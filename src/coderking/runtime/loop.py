@@ -22,6 +22,7 @@ from coderking.runtime.events import (
     plan_event,
     project_instructions_event,
     sandbox_event,
+    skill_injected_event,
     status_event,
     steer_event,
     terminal_event,
@@ -36,6 +37,7 @@ from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
 from coderking.tools.shell import ShellTool
 from coderking_coding_agent.context.project_docs import inject_project_instructions
+from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
@@ -80,6 +82,7 @@ class AgentRuntime:
         state.sandbox_backend = sandbox.name
         await on_event(sandbox_event(sandbox.name, "active", note=note))
         tools = build_tools(workspace, sandbox, self.settings)
+        skill_registry = SkillRegistry(workspace, include_cursor=False)
         if test_command:
             from coderking.tools.test import RunTestsTool
 
@@ -103,6 +106,14 @@ class AgentRuntime:
                         truncated=project_doc.truncated,
                     )
                 )
+            state.messages, injected_skills = inject_matching_skills(
+                workspace,
+                state.messages,
+                prompt,
+                registry=skill_registry,
+            )
+            for skill in injected_skills:
+                await on_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
         else:
             state.messages.append({"role": "user", "content": prompt})
             state.role = Role.PLANNER
@@ -132,6 +143,18 @@ class AgentRuntime:
                 state.iteration += 1
                 if queues:
                     await _inject_steering(state, queues, on_event)
+                recent_context = _recent_tool_context(state.messages)
+                state.messages, injected_skills = inject_matching_skills(
+                    workspace,
+                    state.messages,
+                    state.task,
+                    recent_context,
+                    registry=skill_registry,
+                )
+                for skill in injected_skills:
+                    await on_event(
+                        skill_injected_event(skill.manifest.name, truncated=skill.truncated)
+                    )
                 allowed = ROLE_TOOLS[state.role]
                 schemas = [tools[name].schema() for name in allowed if name in tools]
                 complete = self.llm.complete
@@ -430,3 +453,14 @@ async def _inject_follow_up(
     state.status = TaskStatus.RUNNING
     await on_event(status_event(state.role, state.status))
     return True
+
+
+def _recent_tool_context(messages: list[dict[str, Any]], *, limit: int = 3) -> str:
+    chunks: list[str] = []
+    for message in reversed(messages):
+        if message.get("role") != "tool":
+            continue
+        chunks.append(str(message.get("content") or ""))
+        if len(chunks) >= limit:
+            break
+    return "\n".join(reversed(chunks))

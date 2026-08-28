@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from coderking_agent_core.types import AgentMessage
+from coderking_coding_agent.context.skills import SKILL_TAG_RE
 
 _EDIT_TOOLS = frozenset({"edit_file", "write_file", "create_file"})
 
@@ -17,6 +18,7 @@ class CompressionSummary:
     errors: list[str] = field(default_factory=list)
     open_tasks: list[str] = field(default_factory=list)
     files_touched: list[str] = field(default_factory=list)
+    active_skills: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -24,6 +26,7 @@ class CompressionSummary:
             "errors": list(self.errors),
             "open_tasks": list(self.open_tasks),
             "files_touched": list(self.files_touched),
+            "active_skills": list(self.active_skills),
         }
 
     def render_system_message(self) -> str:
@@ -49,7 +52,18 @@ def _parse_tool_arguments(raw: Any) -> dict[str, Any]:
 def _collect_summary(early: list[AgentMessage]) -> CompressionSummary:
     summary = CompressionSummary()
     seen_files: set[str] = set()
+    seen_skills: set[str] = set()
     for msg in early:
+        if msg.meta.get("skill"):
+            skill_name = str(msg.meta["skill"])
+            if skill_name not in seen_skills:
+                seen_skills.add(skill_name)
+                summary.active_skills.append(skill_name)
+        if msg.content:
+            for skill_name in SKILL_TAG_RE.findall(msg.content):
+                if skill_name not in seen_skills:
+                    seen_skills.add(skill_name)
+                    summary.active_skills.append(skill_name)
         if msg.role == "assistant" and msg.content:
             snippet = msg.content.strip().replace("\n", " ")[:200]
             if snippet and len(summary.decisions) < 12:

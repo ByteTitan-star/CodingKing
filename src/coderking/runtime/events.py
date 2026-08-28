@@ -77,3 +77,7 @@ def project_instructions_event(source: str, content_hash: str, *, truncated: boo
         "project_instructions",
         {"source": source, "hash": content_hash, "truncated": truncated},
     )
+
+
+def skill_injected_event(name: str, *, truncated: bool) -> AgentEvent:
+    return AgentEvent("skill_injected", {"name": name, "truncated": truncated})

@@ -41,6 +41,14 @@ CoderKing exposes a Pi-style JSON-RPC 2.0 line protocol on stdin/stdout for Desk
 | `agent.follow_up` | `{task_id, content}` | `{ok: true}` |
 | `agent.abort` | `{task_id}` | `{ok: true}` |
 | `agent.wait_idle` | `{task_id}` | `{status: "idle"}` |
+| `agent.get_task` | `{task_id}` | task snapshot (same as HTTP GET `/api/tasks/{id}`) |
+| `agent.diff` | `{task_id}` | `{diff}` |
+| `agent.tree` | `{task_id}` | `{files: string[]}` |
+| `agent.read_file` | `{task_id, path}` | `{path, content}` |
+| `agent.approve` | `{task_id}` | `{ok: true}` |
+| `agent.reject` | `{task_id}` | `{ok: true}` |
+| `agent.rollback` | `{task_id}` | `{ok: true}` |
+| `agent.accept` | `{task_id}` | `{ok: true}` |
 | `session.load` | `{session_id?}` | `{session_id, head_id, messages, state}` |
 | `session.branch` | `{session_id?, node_id}` | `{head_id}` |
 

@@ -1,22 +1,19 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  fetchDiff,
+  fetchFile,
+  fetchTask,
+  fetchTree,
+  isDesktopRpc,
+  pickDirectory,
+  postTaskAction,
+  startTask,
+  subscribeEvents,
+  type TaskView,
+} from "./desktopAgent";
+import { apiUrl, wsUrl } from "./apiBase";
 
 type AgentEvent = { type: string; payload: Record<string, unknown> };
-
-type TaskView = {
-  task_id: string;
-  prompt: string;
-  status: string;
-  role: string;
-  iteration: number;
-  plan: { title: string; done: boolean }[];
-  changed_files: string[];
-  test_results: string;
-  model?: string;
-  sandbox: { backend: string; status: string };
-  tokens: { prompt: number; completion: number };
-  errors: string[];
-  events?: AgentEvent[];
-};
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "待运行",
@@ -77,6 +74,8 @@ export default function App() {
   const [steerText, setSteerText] = useState("");
   const [followUpText, setFollowUpText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
+  const taskIdRef = useRef("");
+  const desktopRpc = isDesktopRpc();
 
   const terminal = useMemo(
     () =>
@@ -96,16 +95,43 @@ export default function App() {
   );
 
   useEffect(() => {
+    taskIdRef.current = task?.task_id ?? "";
+  }, [task?.task_id]);
+
+  useEffect(() => {
+    if (desktopRpc) {
+      return subscribeEvents((event) => {
+        setEvents((prev) => [...prev, event]);
+        if (event.type === "approval_required") setHitl(event);
+        if (event.type === "done") setHitl(null);
+        const id = taskIdRef.current;
+        if (
+          id &&
+          (event.type === "file_change" ||
+            event.type === "done" ||
+            event.type === "agent_status" ||
+            event.type === "plan_update")
+        ) {
+          void refreshTask(id);
+          void loadTree(id);
+        }
+      });
+    }
     return () => {
       wsRef.current?.close();
     };
-  }, []);
+  }, [desktopRpc]);
 
   async function refreshTask(id: string) {
-    const res = await fetch(`/api/tasks/${id}`);
+    if (desktopRpc) {
+      setTask(await fetchTask(id));
+      setDiff(await fetchDiff(id));
+      return;
+    }
+    const res = await fetch(apiUrl(`/api/tasks/${id}`));
     if (!res.ok) return;
     setTask((await res.json()) as TaskView);
-    const diffRes = await fetch(`/api/tasks/${id}/diff`);
+    const diffRes = await fetch(apiUrl(`/api/tasks/${id}/diff`));
     if (diffRes.ok) {
       const data = (await diffRes.json()) as { diff: string };
       setDiff(data.diff);
@@ -113,7 +139,13 @@ export default function App() {
   }
 
   async function loadTree(id: string) {
-    const res = await fetch(`/api/tasks/${id}/tree`);
+    if (desktopRpc) {
+      const tree = await fetchTree(id);
+      setFiles(tree);
+      if (tree[0]) setActiveFile(tree[0]);
+      return;
+    }
+    const res = await fetch(apiUrl(`/api/tasks/${id}/tree`));
     if (!res.ok) return;
     const data = (await res.json()) as { files: string[] };
     setFiles(data.files);
@@ -122,18 +154,24 @@ export default function App() {
 
   useEffect(() => {
     if (!task?.task_id || !activeFile) return;
-    fetch(`/api/tasks/${task.task_id}/file?path=${encodeURIComponent(activeFile)}`)
+    if (desktopRpc) {
+      fetchFile(task.task_id, activeFile)
+        .then((content) => setFileContent(content))
+        .catch(() => undefined);
+      return;
+    }
+    fetch(apiUrl(`/api/tasks/${task.task_id}/file?path=${encodeURIComponent(activeFile)}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data) setFileContent(String(data.content ?? ""));
       })
       .catch(() => undefined);
-  }, [activeFile, task?.task_id]);
+  }, [activeFile, desktopRpc, task?.task_id]);
 
   function connectWs(id: string) {
+    if (desktopRpc) return;
     wsRef.current?.close();
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(`${proto}://${window.location.host}/ws/tasks/${id}`);
+    const socket = new WebSocket(wsUrl(`/ws/tasks/${id}`));
     wsRef.current = socket;
     socket.onmessage = (msg) => {
       const event = JSON.parse(msg.data) as AgentEvent;
@@ -159,7 +197,15 @@ export default function App() {
     setEvents([]);
     setHitl(null);
     try {
-      const res = await fetch("/api/tasks", {
+      if (desktopRpc) {
+        const created = await startTask(prompt, repository, false);
+        const view = await fetchTask(created.task_id);
+        setTask(view);
+        await loadTree(created.task_id);
+        await refreshTask(created.task_id);
+        return;
+      }
+      const res = await fetch(apiUrl("/api/tasks"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, repository, auto_approve: false }),
@@ -179,18 +225,38 @@ export default function App() {
 
   async function act(path: string) {
     if (!task) return;
-    await fetch(`/api/tasks/${task.task_id}/${path}`, { method: "POST" });
+    if (desktopRpc) {
+      const action =
+        path === "interrupt"
+          ? "interrupt"
+          : path === "approve"
+            ? "approve"
+            : path === "reject"
+              ? "reject"
+              : path === "rollback"
+                ? "rollback"
+                : path === "accept"
+                  ? "accept"
+                  : null;
+      if (action) await postTaskAction(task.task_id, action);
+    } else {
+      await fetch(apiUrl(`/api/tasks/${task.task_id}/${path}`), { method: "POST" });
+    }
     if (path === "rollback" || path === "accept") await refreshTask(task.task_id);
     if (path === "approve" || path === "reject") setHitl(null);
   }
 
   async function sendControl(path: "steer" | "follow-up", content: string) {
     if (!task || !content.trim()) return;
-    await fetch(`/api/tasks/${task.task_id}/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: content.trim() }),
-    });
+    if (desktopRpc) {
+      await postTaskAction(task.task_id, path, content.trim());
+    } else {
+      await fetch(apiUrl(`/api/tasks/${task.task_id}/${path}`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: content.trim() }),
+      });
+    }
     if (path === "steer") setSteerText("");
     else setFollowUpText("");
   }
@@ -237,12 +303,27 @@ export default function App() {
           <form className="space-y-2 border-b border-white/10 px-4 pb-3" onSubmit={onSubmit}>
             <label className="block text-sm" htmlFor="repo">
               仓库路径
-              <input
-                id="repo"
-                className="mt-1 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
-                value={repository}
-                onChange={(e) => setRepository(e.target.value)}
-              />
+              <div className="mt-1 flex gap-2">
+                <input
+                  id="repo"
+                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
+                  value={repository}
+                  onChange={(e) => setRepository(e.target.value)}
+                />
+                {desktopRpc ? (
+                  <button
+                    className="min-h-11 shrink-0 cursor-pointer rounded-md border border-white/20 px-3"
+                    onClick={() => {
+                      void pickDirectory().then((dir) => {
+                        if (dir) setRepository(dir);
+                      });
+                    }}
+                    type="button"
+                  >
+                    浏览
+                  </button>
+                ) : null}
+              </div>
             </label>
             <label className="block text-sm" htmlFor="prompt">
               任务

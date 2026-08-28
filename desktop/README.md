@@ -1,27 +1,47 @@
 # CoderKing Desktop
 
-Electron 壳，加载 `web/` 的 React UI。API 由本机 `coderking serve` 提供。
+Electron 壳，加载 `web/` 的 React UI。默认通过 **stdio JSON-RPC** 直连 `coderking rpc`（无需单独启动 `coderking serve`）。
 
-## 重要：端口
+## 架构
 
-CoderKing Vite **固定 `5188`**（`strictPort`），避免和别的项目抢默认 `5173`。
+```
+Renderer (React)  ←preload IPC→  Main (Electron)  ←stdio JSONL→  coderking rpc
+```
 
-若 Desktop 打开后出现「Personal Scholar Agent」等其它应用，说明连错了端口。
+- Main 进程 `spawn('python', ['-m', 'coderking', 'rpc', '--workspace', dir])`（`shell: false`）
+- 事件：`agent.event` 通知转发到 Renderer（与 WebSocket/SSE 同 schema）
+- Preload 暴露 `window.coderkingDesktop.useRpc = true`
 
-## 开发启动（3 个终端）
+## 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `CODERKING_BIN` | 直接指定 `coderking` 可执行文件 |
+| `CODERKING_PYTHON` | 默认 `python`，用于 `-m coderking rpc` |
+| `CODERKING_DESKTOP_URL` | 开发时 Vite URL，默认 `http://localhost:5188` |
+
+## 开发启动（2 个终端）
 
 ```bash
-# 1 — Runtime API
-python -m coderking serve --port 8000
-
-# 2 — Vite（必须看到 Local: http://localhost:5188/）
+# 1 — Vite（必须看到 Local: http://localhost:5188/）
 cd web && npm run dev
 
-# 3 — Electron（加载 5188）
+# 2 — Electron（自动 spawn RPC 子进程）
 cd desktop && npm run dev
 ```
 
-浏览器调试：`http://localhost:5188`
+生产模式（加载 `web/dist`）：
+
+```bash
+cd web && npm run build
+cd desktop && npm run start
+```
+
+## 测试
+
+```bash
+cd desktop && npm test
+```
 
 ## Electron 安装（国内网络）
 

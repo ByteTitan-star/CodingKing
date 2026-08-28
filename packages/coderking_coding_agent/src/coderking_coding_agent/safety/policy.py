@@ -32,6 +32,7 @@ class PolicyDecision:
 
 DEFAULT_POLICY: dict[str, Any] = {
     "tools": {
+        "mcp_*": {"default_action": "ask"},
         "bash": {
             "deny_patterns": [
                 r"rm\s+-rf\s+/",
@@ -115,7 +116,15 @@ class PolicyEngine:
         *,
         legacy_requires_approval: bool = False,
     ) -> PolicyDecision:
-        rules = self.tools.get(tool_name) or {}
+        rules = self.tools.get(tool_name)
+        if rules is None:
+            for pattern, candidate in self.tools.items():
+                if fnmatch.fnmatch(tool_name, str(pattern)):
+                    rules = candidate
+                    break
+        if rules is None and tool_name.startswith("mcp_"):
+            rules = {"default_action": "ask"}
+        rules = rules or {}
         command = str(arguments.get("command") or "")
         if command:
             denied = _match_patterns(command, rules.get("deny_patterns") or [], regex=True)

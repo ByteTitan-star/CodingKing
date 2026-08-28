@@ -5,6 +5,7 @@ from pathlib import Path
 from coderking.config import Settings
 from coderking.sandbox.base import Sandbox
 from coderking.tools.base import Tool
+from coderking.tools.edit import EditFileTool
 from coderking.tools.file import DeleteFileTool, ReadFileTool, SearchCodeTool, WriteFileTool
 from coderking.tools.git import GitApplyPatchTool, GitCommitTool, GitDiffTool, GitStatusTool
 from coderking.tools.meta import meta_tools
@@ -21,6 +22,7 @@ def build_tools(workspace: Path, sandbox: Sandbox, settings: Settings) -> dict[s
             name="create_file",
             description="Create a new UTF-8 text file (same as write_file).",
         ),
+        EditFileTool(workspace),
         DeleteFileTool(workspace),
         SearchCodeTool(workspace),
         ShellTool(sandbox, settings.sandbox_timeout_sec),

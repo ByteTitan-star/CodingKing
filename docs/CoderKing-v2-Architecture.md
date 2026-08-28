@@ -61,4 +61,5 @@ scripts/check_layer_deps.py
 - [x] `python scripts/check_layer_deps.py` 退出码 0
 - [x] 现有 pytest（非 docker）全绿
 - [x] 无环依赖（边界脚本覆盖）
-- [ ] Facade `src/coderking/{tools,sandbox,runtime/loop}` 迁入 L2 / 薄 re-export（Epic 收尾）
+- [x] Facade `workspace` + file/read/edit tools 迁入 L2（薄 re-export）
+- [ ] Facade `sandbox` / shell / `runtime/loop` harness 迁入 L2（Epic 收尾）

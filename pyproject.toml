@@ -53,7 +53,7 @@ where = [
 ]
 
 [tool.setuptools.package-data]
-coderking = ["py.typed", "prompts/**/*.md", "templates/*.md"]
+coderking = ["py.typed", "prompts/**/*.md", "templates/*"]
 coderking_llm = ["py.typed"]
 coderking_agent_core = ["py.typed"]
 coderking_coding_agent = ["py.typed"]

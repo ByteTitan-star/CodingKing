@@ -20,6 +20,7 @@ from coderking.runtime.events import (
     file_event,
     follow_up_event,
     plan_event,
+    policy_event,
     project_instructions_event,
     sandbox_event,
     skill_injected_event,
@@ -35,9 +36,9 @@ from coderking.runtime.roles import ROLE_TOOLS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
-from coderking.tools.shell import ShellTool
 from coderking_coding_agent.context.project_docs import inject_project_instructions
 from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
+from coderking_coding_agent.safety.policy import PolicyAction, PolicyDecision, PolicyEngine
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
@@ -83,6 +84,7 @@ class AgentRuntime:
         await on_event(sandbox_event(sandbox.name, "active", note=note))
         tools = build_tools(workspace, sandbox, self.settings)
         skill_registry = SkillRegistry(workspace, include_cursor=False)
+        policy_engine = PolicyEngine.load(workspace)
         if test_command:
             from coderking.tools.test import RunTestsTool
 
@@ -190,6 +192,7 @@ class AgentRuntime:
                         approve,
                         auto_approve,
                         workspace,
+                        policy_engine,
                     )
                     if queues:
                         steered = await queues.drain_steering()
@@ -236,6 +239,7 @@ class AgentRuntime:
         approve: ApprovalFn | None,
         auto_approve: bool,
         workspace: Path,
+        policy_engine: PolicyEngine,
     ) -> None:
         tool = tools.get(call.name)
         await on_event(tool_event(call.name, "running", arguments=call.arguments))
@@ -246,17 +250,34 @@ class AgentRuntime:
             output = f"tool {call.name} is not allowed in role {state.role}"
             ok = False
         else:
-            need = bool(getattr(tool, "requires_approval", False))
-            if isinstance(tool, ShellTool) and tool.needs_approval(
-                str(call.arguments.get("command", ""))
-            ):
-                need = True
-            if need and not auto_approve:
+            legacy_approval = bool(getattr(tool, "requires_approval", False))
+            decision = policy_engine.evaluate(
+                call.name,
+                call.arguments,
+                legacy_requires_approval=legacy_approval,
+            )
+            await on_event(
+                policy_event(
+                    decision.action.value,
+                    call.name,
+                    decision.reason,
+                    rule=decision.rule,
+                    arguments=call.arguments,
+                )
+            )
+            _audit_policy_decision(workspace, call.name, call.arguments, decision)
+            if decision.action == PolicyAction.DENY:
+                output = f"policy denied: {decision.reason}"
+                ok = False
+                state.messages.append(_tool_message(call, output))
+                await on_event(tool_event(call.name, "denied", preview=output))
+                return
+            if decision.action == PolicyAction.ASK and not auto_approve:
                 state.status = TaskStatus.WAITING_APPROVAL
-                await on_event(approval_event("dangerous operation", call.name, call.arguments))
+                await on_event(approval_event(decision.reason, call.name, call.arguments))
                 allowed = False
                 if approve:
-                    allowed = await approve(call.name, "dangerous operation", call.arguments)
+                    allowed = await approve(call.name, decision.reason, call.arguments)
                 if not allowed:
                     output = "user rejected the operation"
                     ok = False
@@ -464,3 +485,27 @@ def _recent_tool_context(messages: list[dict[str, Any]], *, limit: int = 3) -> s
         if len(chunks) >= limit:
             break
     return "\n".join(reversed(chunks))
+
+
+def _audit_policy_decision(
+    workspace: Path,
+    tool_name: str,
+    arguments: dict[str, Any],
+    decision: PolicyDecision,
+) -> None:
+    if decision.action.value == "allow":
+        return
+    try:
+        from coderking_coding_agent.session.repo import SessionRepo
+
+        repo = SessionRepo(workspace, session_id="policy-audit")
+        repo.append(
+            "audit",
+            {
+                "tool": tool_name,
+                "arguments": arguments,
+                "decision": decision.to_dict(),
+            },
+        )
+    except OSError:
+        return

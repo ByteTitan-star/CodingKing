@@ -52,6 +52,26 @@ def approval_event(reason: str, tool: str, arguments: dict[str, Any]) -> AgentEv
     )
 
 
+def policy_event(
+    action: str,
+    tool: str,
+    reason: str,
+    *,
+    rule: str | None = None,
+    arguments: dict[str, Any] | None = None,
+) -> AgentEvent:
+    return AgentEvent(
+        "policy_decision",
+        {
+            "action": action,
+            "tool": tool,
+            "reason": reason,
+            "rule": rule,
+            "arguments": arguments or {},
+        },
+    )
+
+
 def done_event(ok: bool, summary: str) -> AgentEvent:
     return AgentEvent("done", {"ok": ok, "summary": summary})
 

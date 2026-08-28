@@ -144,9 +144,7 @@ class PolicyEngine:
             )
         if default_action == "ask" or legacy_requires_approval:
             reason = (
-                "policy requires approval"
-                if default_action == "ask"
-                else "legacy tool approval"
+                "policy requires approval" if default_action == "ask" else "legacy tool approval"
             )
             return PolicyDecision(PolicyAction.ASK, reason, "default_action")
 

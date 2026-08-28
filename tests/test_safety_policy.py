@@ -94,9 +94,7 @@ async def test_loop_emits_policy_decision_and_denies(tmp_path: Path) -> None:
     policy_events = [e for e in events if e.type == "policy_decision"]
     assert policy_events
     assert policy_events[0].payload["action"] == "deny"
-    assert any(
-        e.type == "tool_call" and e.payload.get("status") == "denied" for e in events
-    )
+    assert any(e.type == "tool_call" and e.payload.get("status") == "denied" for e in events)
 
 
 @pytest.mark.asyncio

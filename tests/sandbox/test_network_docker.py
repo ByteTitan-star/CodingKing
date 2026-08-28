@@ -37,7 +37,7 @@ async def test_restricted_allows_pypi_denies_google(tmp_path: Path) -> None:
     assert "1.16.0" in pip.combined
 
     deny_cmd = (
-        "python -c \"import urllib.request; "
+        'python -c "import urllib.request; '
         "urllib.request.urlopen('https://www.google.com', timeout=5)\""
     )
     denied = await sandbox.run(deny_cmd, timeout_sec=60)

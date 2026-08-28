@@ -147,9 +147,7 @@ class AllowlistProxy:
     async def __aexit__(self, *exc: object) -> None:
         await self.stop()
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             request_line = await reader.readline()
             if not request_line:
@@ -196,10 +194,7 @@ class AllowlistProxy:
             b"HTTP/1.1 403 Forbidden\r\n"
             b"Content-Type: text/plain\r\n"
             b"Connection: close\r\n"
-            b"Content-Length: "
-            + str(len(body)).encode()
-            + b"\r\n\r\n"
-            + body
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
         )
         await writer.drain()
 
@@ -226,9 +221,7 @@ class AllowlistProxy:
         client_writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         await client_writer.drain()
 
-        async def pipe(
-            src: asyncio.StreamReader, dst: asyncio.StreamWriter
-        ) -> None:
+        async def pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
             try:
                 while True:
                     data = await src.read(65536)

@@ -59,9 +59,7 @@ class DockerSandbox(Sandbox):
         self.image = image
         self.memory_mb = memory_mb
         self.cpus = cpus
-        self.policy = network_policy or NetworkPolicy(
-            mode="full" if network else "none"
-        )
+        self.policy = network_policy or NetworkPolicy(mode="full" if network else "none")
         self.network = self.policy.mode != "none"  # legacy flag for tests
         self.cancel = cancel
         self.last_args: list[str] = []

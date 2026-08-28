@@ -9,6 +9,7 @@ ROLE_TOOLS: dict[Role, frozenset[str]] = {
             "read_file",
             "write_file",
             "create_file",
+            "edit_file",
             "search_code",
             "delete_file",
             "git_status",
@@ -33,6 +34,7 @@ ROLE_TOOLS: dict[Role, frozenset[str]] = {
             "read_file",
             "write_file",
             "create_file",
+            "edit_file",
             "search_code",
             "delete_file",
             "shell",
@@ -52,7 +54,8 @@ SYSTEM_PROMPTS: dict[Role, str] = {
     ),
     Role.CODING: (
         "You are the Coding role. Implement the plan by editing files inside the workspace. "
-        "Prefer small, correct patches. When implementation looks complete, call "
+        "Prefer edit_file for targeted patches; use write_file for new files. "
+        "When implementation looks complete, call "
         "submit_for_execution."
     ),
     Role.EXECUTION: (

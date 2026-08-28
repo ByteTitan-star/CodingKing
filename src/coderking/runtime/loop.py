@@ -20,6 +20,7 @@ from coderking.runtime.events import (
     file_event,
     follow_up_event,
     plan_event,
+    phase_change_event,
     policy_event,
     project_instructions_event,
     sandbox_event,
@@ -36,6 +37,8 @@ from coderking.runtime.roles import ROLE_TOOLS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
+from coderking_agent_core.fsm import LoopEvent, PhaseFSM
+from coderking_agent_core.types import LoopPhase
 from coderking_coding_agent.context.project_docs import inject_project_instructions
 from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
 from coderking_coding_agent.safety.policy import PolicyAction, PolicyDecision, PolicyEngine
@@ -125,6 +128,16 @@ class AgentRuntime:
                 {"role": "system", "content": resolve_system_prompt(self.settings, Role.PLANNER)}
             )
         await on_event(status_event(state.role, state.status))
+        fsm = PhaseFSM()
+
+        async def emit_phase(previous: LoopPhase, current: LoopPhase) -> None:
+            await on_event(
+                phase_change_event(
+                    phase=current.value,
+                    from_phase=previous.value if previous != current else None,
+                )
+            )
+
         try:
             while state.iteration < self.settings.max_iterations:
                 self.cancel.raise_if_cancelled()
@@ -138,11 +151,17 @@ class AgentRuntime:
                 ):
                     self.cancel.cancel()
                     state.status = TaskStatus.INTERRUPTED
+                    if fsm.phase != LoopPhase.TERMINATED:
+                        await fsm.advance(LoopEvent.TERMINATE, on_phase_change=emit_phase)
                     await on_event(done_event(False, "interrupted"))
                     persist_state(workspace, state)
                     return state
                 persist_state(workspace, state)
                 state.iteration += 1
+                if fsm.phase == LoopPhase.RE_PERCEIVE:
+                    await fsm.advance(LoopEvent.CONTINUE, on_phase_change=emit_phase)
+                elif fsm.phase == LoopPhase.PERCEIVE:
+                    await on_event(phase_change_event(phase=fsm.phase.value))
                 if queues:
                     await _inject_steering(state, queues, on_event)
                 recent_context = _recent_tool_context(state.messages)
@@ -157,6 +176,7 @@ class AgentRuntime:
                     await on_event(
                         skill_injected_event(skill.manifest.name, truncated=skill.truncated)
                     )
+                await fsm.advance(LoopEvent.CONTEXT_READY, on_phase_change=emit_phase)
                 allowed = ROLE_TOOLS[state.role]
                 schemas = [tools[name].schema() for name in allowed if name in tools]
                 complete = self.llm.complete
@@ -170,6 +190,7 @@ class AgentRuntime:
                 if not response.tool_calls:
                     if response.content:
                         state.messages.append({"role": "assistant", "content": response.content})
+                    await fsm.advance(LoopEvent.ASSISTANT_NO_TOOLS, on_phase_change=emit_phase)
                     state = await self._advance_without_tools(state, on_event, workspace)
                     if state.status in {
                         TaskStatus.SUCCEEDED,
@@ -179,6 +200,7 @@ class AgentRuntime:
                         return state
                     continue
                 state.messages.append(_assistant_tool_message(response))
+                await fsm.advance(LoopEvent.ASSISTANT_WITH_TOOLS, on_phase_change=emit_phase)
                 tool_calls = list(response.tool_calls)
                 for index, call in enumerate(tool_calls):
                     self.cancel.raise_if_cancelled()
@@ -203,6 +225,8 @@ class AgentRuntime:
                                 state.messages.append(_tool_message(rem, skipped))
                                 await on_event(tool_event(rem.name, "skipped", preview=skipped))
                             break
+                await fsm.advance(LoopEvent.TOOLS_DONE, on_phase_change=emit_phase)
+                await fsm.advance(LoopEvent.RESULTS_APPENDED, on_phase_change=emit_phase)
                 if state.status in {
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
@@ -211,6 +235,8 @@ class AgentRuntime:
                     return state
             state.status = TaskStatus.FAILED
             state.errors.append("max iterations reached")
+            if fsm.phase != LoopPhase.TERMINATED:
+                await fsm.advance(LoopEvent.TERMINATE, on_phase_change=emit_phase)
             await on_event(error_event("max iterations reached"))
             await on_event(done_event(False, "max iterations reached"))
             return state

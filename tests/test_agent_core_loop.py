@@ -46,6 +46,36 @@ async def test_agent_loop_runs_tool_then_stops() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_loop_emits_phase_change_sequence() -> None:
+    async def echo(**kwargs: object) -> tuple[bool, str]:
+        return True, "ok"
+
+    async def complete_turn(ctx: AgentContext) -> TurnResult:
+        if not any(m.role == "tool" for m in ctx.messages):
+            return TurnResult(tool_calls=[new_tool_call("echo", {"x": 1})], stop_reason="tool_use")
+        return TurnResult(content="done")
+
+    agent = Agent(
+        tools=[AgentTool("echo", "", {}, echo)],
+        complete_turn=complete_turn,
+        should_stop_after_turn=lambda ctx, turn, results: _async_true(),
+    )
+    phases: list[str] = []
+
+    async def collect(event: dict) -> None:
+        if event.get("type") == "phase_change":
+            phases.append(str(event.get("phase")))
+
+    agent.subscribe(collect)
+    await agent.prompt("hi")
+    assert phases[0] == "perceive"
+    assert "decide" in phases
+    assert "act" in phases
+    assert "observe" in phases
+    assert phases[-1] == "re_perceive"
+
+
+@pytest.mark.asyncio
 async def test_agent_steering_skips_second_tool_in_sequential_mode() -> None:
     executed: list[str] = []
 

@@ -4,7 +4,7 @@
   <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.5"><img src="https://img.shields.io/badge/CoderKing-v1.0.5-2563eb" alt="CoderKing v1.0.5" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-  <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <img src="https://img.shields.io/badge/English-0A66C2" alt="English" />
   <a href="./README_zh.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" /></a>
 </p>

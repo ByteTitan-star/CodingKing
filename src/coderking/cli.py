@@ -73,7 +73,9 @@ def run(
     ),
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
-    settings = load_settings(workspace=_workspace(workspace), allow_commit=commit, extension=extension)
+    settings = load_settings(
+        workspace=_workspace(workspace), allow_commit=commit, extension=extension
+    )
     asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None))
 
 

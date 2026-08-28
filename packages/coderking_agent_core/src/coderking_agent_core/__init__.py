@@ -2,8 +2,40 @@
 
 from __future__ import annotations
 
+from coderking_agent_core.agent import Agent
+from coderking_agent_core.cancel import CancelledRun, RunCancel
+from coderking_agent_core.loop import (
+    AgentLoopConfig,
+    ToolCallRequest,
+    TurnResult,
+    new_tool_call,
+    run_agent_loop,
+)
+from coderking_agent_core.types import (
+    AgentContext,
+    AgentMessage,
+    AgentTool,
+    LoopPhase,
+)
+
 LAYER = 1
 LAYER_NAME = "agent_core"
 __version__ = "0.1.0"
 
-__all__ = ["LAYER", "LAYER_NAME", "__version__"]
+__all__ = [
+    "LAYER",
+    "LAYER_NAME",
+    "Agent",
+    "AgentContext",
+    "AgentLoopConfig",
+    "AgentMessage",
+    "AgentTool",
+    "CancelledRun",
+    "LoopPhase",
+    "RunCancel",
+    "ToolCallRequest",
+    "TurnResult",
+    "new_tool_call",
+    "run_agent_loop",
+    "__version__",
+]

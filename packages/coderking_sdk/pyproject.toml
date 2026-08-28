@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coderking-sdk"
-version = "1.0.4"
+version = "1.0.5"
 description = "CoderKing embed SDK: in-process AgentSession (no HTTP)"
 requires-python = ">=3.12"
 dependencies = [
-  "coderking>=1.0.4",
+  "coderking>=1.0.5",
 ]
 
 [tool.setuptools.packages.find]

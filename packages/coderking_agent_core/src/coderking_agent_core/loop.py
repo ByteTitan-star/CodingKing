@@ -10,6 +10,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from coderking_agent_core.cancel import CancelledRun, RunCancel
+from coderking_agent_core.fsm import LoopEvent, PhaseFSM
 from coderking_agent_core.types import AgentContext, AgentMessage, LoopPhase
 
 ToolExecutionMode = Literal["sequential", "parallel"]
@@ -79,6 +80,13 @@ async def run_agent_loop(
     await emit({"type": "agent_start"})
     turns = 0
     pending: list[AgentMessage] = []
+    fsm = PhaseFSM()
+
+    async def emit_phase(previous: LoopPhase, current: LoopPhase) -> None:
+        payload: dict[str, Any] = {"phase": current.value}
+        if previous != current:
+            payload["from"] = previous.value
+        await emit({"type": "phase_change", **payload})
 
     while True:
         inner_active = True
@@ -86,6 +94,8 @@ async def run_agent_loop(
             if config.cancel:
                 config.cancel.raise_if_aborted()
             if turns >= config.max_turns:
+                if fsm.phase != LoopPhase.TERMINATED:
+                    await fsm.advance(LoopEvent.TERMINATE, on_phase_change=emit_phase)
                 await emit({"type": "error", "message": "max turns reached"})
                 await emit({"type": "agent_end", "ok": False})
                 return ctx
@@ -98,8 +108,11 @@ async def run_agent_loop(
                     await _emit_message(emit, msg)
                 pending = []
 
-            phase = LoopPhase.PERCEIVE
-            await emit({"type": "phase_change", "phase": phase.value})
+            if fsm.phase == LoopPhase.RE_PERCEIVE:
+                await fsm.advance(LoopEvent.CONTINUE, on_phase_change=emit_phase)
+            elif fsm.phase == LoopPhase.PERCEIVE:
+                await emit({"type": "phase_change", "phase": fsm.phase.value})
+
             messages_for_llm = list(ctx.messages)
             if config.transform_context:
                 messages_for_llm = await config.transform_context(messages_for_llm)
@@ -110,8 +123,7 @@ async def run_agent_loop(
                 tools=ctx.tools,
             )
 
-            phase = LoopPhase.DECIDE
-            await emit({"type": "phase_change", "phase": phase.value})
+            await fsm.advance(LoopEvent.CONTEXT_READY, on_phase_change=emit_phase)
             turn = await config.complete_turn(llm_ctx)
             assistant = AgentMessage(
                 role="assistant",
@@ -142,8 +154,7 @@ async def run_agent_loop(
             steering_after_act: list[AgentMessage] = []
             inner_active = bool(turn.tool_calls)
             if turn.tool_calls:
-                phase = LoopPhase.ACT
-                await emit({"type": "phase_change", "phase": phase.value})
+                await fsm.advance(LoopEvent.ASSISTANT_WITH_TOOLS, on_phase_change=emit_phase)
                 if turn.stop_reason == "length":
                     tool_results = await _fail_truncated_tools(turn.tool_calls, emit)
                 elif config.tool_execution == "parallel":
@@ -155,8 +166,7 @@ async def run_agent_loop(
                         ctx, turn.tool_calls, emit, config
                     )
 
-                phase = LoopPhase.OBSERVE
-                await emit({"type": "phase_change", "phase": phase.value})
+                await fsm.advance(LoopEvent.TOOLS_DONE, on_phase_change=emit_phase)
                 for result in tool_results:
                     tool_msg = AgentMessage(
                         role="tool",
@@ -166,9 +176,10 @@ async def run_agent_loop(
                     )
                     ctx.messages.append(tool_msg)
                     await _emit_message(emit, tool_msg)
+                await fsm.advance(LoopEvent.RESULTS_APPENDED, on_phase_change=emit_phase)
+            else:
+                await fsm.advance(LoopEvent.ASSISTANT_NO_TOOLS, on_phase_change=emit_phase)
 
-            phase = LoopPhase.RE_PERCEIVE
-            await emit({"type": "phase_change", "phase": phase.value})
             await emit({"type": "turn_end", "turn": turns})
 
             if config.should_stop_after_turn and await config.should_stop_after_turn(

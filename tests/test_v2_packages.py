@@ -4,6 +4,7 @@ import coderking_agent_core
 import coderking_coding_agent
 import coderking_llm
 import coderking_transport
+from coderking_agent_core.fsm import InvalidPhaseTransition, LoopEvent, PhaseFSM
 from coderking_agent_core.types import AgentContext, LoopPhase
 from coderking_coding_agent.extensions_swe import default_registry
 from coderking_llm.protocols import StopReason, UsageStats
@@ -21,6 +22,9 @@ def test_layer_contracts_are_usable() -> None:
     assert StopReason.TOOL_USE.value == "tool_use"
     assert UsageStats(1, 2).total_tokens == 3
     assert LoopPhase.DECIDE == "decide"
+    assert PhaseFSM().phase == LoopPhase.PERCEIVE
+    assert issubclass(InvalidPhaseTransition, Exception)
+    assert LoopEvent.CONTINUE == "continue"
     ctx = AgentContext(system_prompt="x")
     assert ctx.messages == []
     registry = default_registry()

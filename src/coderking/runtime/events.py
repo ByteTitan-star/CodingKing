@@ -101,3 +101,10 @@ def project_instructions_event(source: str, content_hash: str, *, truncated: boo
 
 def skill_injected_event(name: str, *, truncated: bool) -> AgentEvent:
     return AgentEvent("skill_injected", {"name": name, "truncated": truncated})
+
+
+def phase_change_event(*, phase: str, from_phase: str | None = None) -> AgentEvent:
+    payload: dict[str, Any] = {"phase": phase}
+    if from_phase is not None:
+        payload["from"] = from_phase
+    return AgentEvent("phase_change", payload)

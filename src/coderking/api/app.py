@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from coderking import __version__
 from coderking.controller import CONTROLLER, TaskController
 from coderking.workspace import iter_files
+from coderking_coding_agent.context.project_docs import ProjectInstructionsLoader
 
 
 def _web_dist() -> Path:
@@ -115,6 +116,11 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
         base = Path(root).resolve()
         files = [p.relative_to(base).as_posix() for p in iter_files(base, max_files=500)]
         return {"root": str(base), "files": files}
+
+    @app.get("/api/workspace/project-instructions")
+    async def workspace_project_instructions(root: str = ".") -> dict:
+        base = Path(root).resolve()
+        return ProjectInstructionsLoader(base).inspect()
 
     @app.post("/api/tasks/{task_id}/approve")
     async def approve(task_id: str, body: ApprovalBody | None = None) -> dict:

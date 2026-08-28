@@ -147,7 +147,9 @@ async def run_agent_loop(
                 if turn.stop_reason == "length":
                     tool_results = await _fail_truncated_tools(turn.tool_calls, emit)
                 elif config.tool_execution == "parallel":
-                    tool_results = await _execute_tools_parallel(ctx, turn.tool_calls, emit, config)
+                    tool_results, steering_after_act = await _execute_tools_parallel(
+                        ctx, turn.tool_calls, emit, config
+                    )
                 else:
                     tool_results, steering_after_act = await _execute_tools_sequential(
                         ctx, turn.tool_calls, emit, config
@@ -258,9 +260,43 @@ async def _execute_tools_parallel(
     calls: list[ToolCallRequest],
     emit: Callable[[dict[str, Any]], Awaitable[None]],
     config: AgentLoopConfig,
-) -> list[ToolExecutionResult]:
-    tasks = [_execute_one_tool(ctx, call, emit, config) for call in calls]
-    return list(await asyncio.gather(*tasks))
+) -> tuple[list[ToolExecutionResult], list[AgentMessage]]:
+    pending = [
+        asyncio.create_task(_execute_one_tool(ctx, call, emit, config)) for call in calls
+    ]
+    results: list[ToolExecutionResult] = []
+    steering_found: list[AgentMessage] = []
+    for task in asyncio.as_completed(pending):
+        result = await task
+        results.append(result)
+        if config.get_steering_messages:
+            steering = await config.get_steering_messages()
+            if steering:
+                steering_found = steering
+                for other in pending:
+                    if not other.done():
+                        other.cancel()
+                break
+    if steering_found:
+        done_ids = {r.tool_call_id for r in results}
+        for call in calls:
+            if call.id not in done_ids:
+                output = f'Tool "{call.name}" skipped due to steering interrupt.'
+                await emit(
+                    {
+                        "type": "tool_execution_end",
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "ok": False,
+                        "output": output,
+                    }
+                )
+                results.append(
+                    ToolExecutionResult(
+                        tool_call_id=call.id, name=call.name, ok=False, output=output
+                    )
+                )
+    return results, steering_found
 
 
 async def _execute_tools_sequential(

@@ -74,6 +74,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hitl, setHitl] = useState<AgentEvent | null>(null);
+  const [steerText, setSteerText] = useState("");
+  const [followUpText, setFollowUpText] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
   const terminal = useMemo(
@@ -182,6 +184,18 @@ export default function App() {
     if (path === "approve" || path === "reject") setHitl(null);
   }
 
+  async function sendControl(path: "steer" | "follow-up", content: string) {
+    if (!task || !content.trim()) return;
+    await fetch(`/api/tasks/${task.task_id}/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: content.trim() }),
+    });
+    if (path === "steer") setSteerText("");
+    else setFollowUpText("");
+  }
+
+  const running = task?.status === "running";
   const waiting = task?.status === "waiting_approval";
 
   return (
@@ -288,6 +302,48 @@ export default function App() {
                 type="button"
               >
                 Rollback Changes
+              </button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block text-sm" htmlFor="steer">
+                Steer（运行中转向）
+                <textarea
+                  id="steer"
+                  className="mt-1 min-h-16 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
+                  disabled={!task || !running}
+                  placeholder="停止当前方向，改为…"
+                  value={steerText}
+                  onChange={(e) => setSteerText(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm" htmlFor="follow-up">
+                Follow-up（完成后跟进）
+                <textarea
+                  id="follow-up"
+                  className="mt-1 min-h-16 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
+                  disabled={!task}
+                  placeholder="任务完成后自动执行…"
+                  value={followUpText}
+                  onChange={(e) => setFollowUpText(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="min-h-11 cursor-pointer rounded-md border border-sky-400/40 px-3 disabled:opacity-40"
+                disabled={!task || !running || !steerText.trim()}
+                onClick={() => void sendControl("steer", steerText)}
+                type="button"
+              >
+                Send Steer
+              </button>
+              <button
+                className="min-h-11 cursor-pointer rounded-md border border-violet-400/40 px-3 disabled:opacity-40"
+                disabled={!task || !followUpText.trim()}
+                onClick={() => void sendControl("follow-up", followUpText)}
+                type="button"
+              >
+                Queue Follow-up
               </button>
             </div>
             {hitl ? (

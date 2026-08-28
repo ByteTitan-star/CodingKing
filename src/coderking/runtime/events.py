@@ -62,3 +62,11 @@ def error_event(message: str) -> AgentEvent:
 
 def token_event(prompt: int, completion: int) -> AgentEvent:
     return AgentEvent("token_usage", {"prompt": prompt, "completion": completion})
+
+
+def steer_event(content: str) -> AgentEvent:
+    return AgentEvent("steer", {"content": content})
+
+
+def follow_up_event(content: str) -> AgentEvent:
+    return AgentEvent("follow_up", {"content": content})

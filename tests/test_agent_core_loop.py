@@ -88,6 +88,52 @@ async def test_agent_steering_skips_second_tool_in_sequential_mode() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_steering_skips_second_tool_in_parallel_mode() -> None:
+    import asyncio
+
+    executed: list[str] = []
+
+    async def tool_a(**kwargs: object) -> tuple[bool, str]:
+        executed.append("a")
+        await asyncio.sleep(0.02)
+        return True, "a"
+
+    async def tool_b(**kwargs: object) -> tuple[bool, str]:
+        await asyncio.sleep(0.1)
+        executed.append("b")
+        return True, "b"
+
+    async def complete_turn(ctx: AgentContext) -> TurnResult:
+        if not any(m.role == "tool" for m in ctx.messages):
+            return TurnResult(
+                tool_calls=[
+                    new_tool_call("a"),
+                    new_tool_call("b"),
+                ],
+                stop_reason="tool_use",
+            )
+        return TurnResult(content="done")
+
+    agent = Agent(
+        tools=[
+            AgentTool("a", "", {}, tool_a),
+            AgentTool("b", "", {}, tool_b),
+        ],
+        complete_turn=complete_turn,
+        tool_execution="parallel",
+        should_stop_after_turn=lambda ctx, turn, results: _async_true(),
+    )
+
+    async def steer_after_first(event: dict) -> None:
+        if event.get("type") == "tool_execution_start" and event.get("name") == "a":
+            agent.steer(AgentMessage(role="user", content="change direction"))
+
+    agent.subscribe(steer_after_first)
+    await agent.prompt("go")
+    assert executed == ["a"]
+
+
+@pytest.mark.asyncio
 async def test_agent_follow_up_runs_after_stop() -> None:
     turns = {"n": 0}
 

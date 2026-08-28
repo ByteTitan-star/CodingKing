@@ -14,6 +14,7 @@ from coderking.registry import request_cancel
 from coderking.runtime.cancel import CancellationToken
 from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
+from coderking.runtime.queues import RunMessageQueues
 from coderking.runtime.state import AgentState, TaskStatus
 from coderking.workspace import ensure_inside, iter_files
 
@@ -26,6 +27,7 @@ class ManagedTask:
     approval: asyncio.Future[bool] | None = None
     cancel: CancellationToken = field(default_factory=CancellationToken)
     snapshot: list[dict[str, Any]] = field(default_factory=list)
+    queues: RunMessageQueues = field(default_factory=RunMessageQueues)
 
 
 class TaskController:
@@ -79,6 +81,7 @@ class TaskController:
                     auto_approve=auto_approve,
                     test_command=test_command,
                     state=managed.state,
+                    queues=managed.queues,
                 )
             finally:
                 await managed.events.put(None)
@@ -103,6 +106,20 @@ class TaskController:
         task.state.cancel_requested = True
         task.cancel.cancel()
         request_cancel(task.workspace, task_id)
+
+    async def steer(self, task_id: str, content: str) -> None:
+        task = self.get(task_id)
+        task.queues.enqueue_steer(content)
+        from coderking.runtime.events import steer_event
+
+        await task.events.put(steer_event(content))
+
+    async def follow_up(self, task_id: str, content: str) -> None:
+        task = self.get(task_id)
+        task.queues.enqueue_follow_up(content)
+        from coderking.runtime.events import follow_up_event
+
+        await task.events.put(follow_up_event(content))
 
     def rollback(self, task_id: str) -> None:
         task = self.get(task_id)

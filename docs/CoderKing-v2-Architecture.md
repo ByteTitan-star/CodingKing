@@ -50,14 +50,15 @@ scripts/check_layer_deps.py
 
 ## PR 拆分
 
-1. **PR-1（本 Issue 首 PR）**：脚手架 + 架构文档 + 边界检查
-2. **PR-2（#25）**：L0 streaming + retry，迁出 `llm`
-3. **PR-3（#24）**：L1 纯 Loop + Agent 类
-4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层
+1. **PR-1（本 Issue 首 PR）**：脚手架 + 架构文档 + 边界检查 — ✅
+2. **PR-2（#25 / #23 续）**：L0 streaming + retry + `OpenAICompatProvider` 迁入 `coderking_llm`；`src/coderking/llm` 仅 facade — ✅
+3. **PR-3（#24）**：L1 纯 Loop + Agent 类 — ✅（包内落地；`AgentRuntime` harness 仍在 facade）
+4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层 — 部分完成；tools/sandbox 主体仍在 facade
 
 ## 验收
 
-- [ ] 四层包可被 `pip install -e ".[dev]"` 导入
-- [ ] `python scripts/check_layer_deps.py` 退出码 0
-- [ ] 现有 pytest（非 docker）全绿
-- [ ] 无环依赖（边界脚本覆盖）
+- [x] 四层包可被 `pip install -e ".[dev]"` 导入
+- [x] `python scripts/check_layer_deps.py` 退出码 0
+- [x] 现有 pytest（非 docker）全绿
+- [x] 无环依赖（边界脚本覆盖）
+- [ ] Facade `src/coderking/{tools,sandbox,runtime/loop}` 迁入 L2 / 薄 re-export（Epic 收尾）

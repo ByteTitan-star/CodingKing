@@ -1,24 +1,13 @@
+"""Facade re-export of L0 provider types (Issue #23 PR-2)."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Protocol
 
 from coderking.runtime.cancel import CancellationToken
+from coderking_llm.provider import LLMResponse, ToolCall
 
-
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-@dataclass
-class LLMResponse:
-    content: str
-    tool_calls: list[ToolCall]
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
+__all__ = ["LLMProvider", "LLMResponse", "ToolCall"]
 
 
 class LLMProvider(Protocol):

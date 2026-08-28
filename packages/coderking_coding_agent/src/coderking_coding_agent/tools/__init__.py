@@ -21,8 +21,10 @@ from coderking_coding_agent.tools.file import (
     invalidate_bytecode,
 )
 from coderking_coding_agent.tools.read import format_numbered_lines, read_path
+from coderking_coding_agent.tools.shell import DANGEROUS, ShellTool
 
 __all__ = [
+    "DANGEROUS",
     "DeleteFileTool",
     "DynamicToolExecutor",
     "DynamicToolLoader",
@@ -31,6 +33,7 @@ __all__ = [
     "FileTool",
     "ReadFileTool",
     "SearchCodeTool",
+    "ShellTool",
     "Tool",
     "ToolResult",
     "ToolValidationError",

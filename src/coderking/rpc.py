@@ -34,6 +34,14 @@ class RpcService:
             "agent.follow_up": self._agent_follow_up,
             "agent.abort": self._agent_abort,
             "agent.wait_idle": self._agent_wait_idle,
+            "agent.get_task": self._agent_get_task,
+            "agent.diff": self._agent_diff,
+            "agent.tree": self._agent_tree,
+            "agent.read_file": self._agent_read_file,
+            "agent.approve": self._agent_approve,
+            "agent.reject": self._agent_reject,
+            "agent.rollback": self._agent_rollback,
+            "agent.accept": self._agent_accept,
             "session.load": self._session_load,
             "session.branch": self._session_branch,
         }
@@ -91,6 +99,44 @@ class RpcService:
         if idle is not None:
             await idle.wait()
         return {"status": "idle", "task_id": task_id}
+
+    async def _agent_get_task(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        return self.controller.public_task(task_id)
+
+    async def _agent_diff(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        return {"diff": self.controller.diff(task_id)}
+
+    async def _agent_tree(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        return {"files": self.controller.tree(task_id)}
+
+    async def _agent_read_file(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        rel = str(params.get("path") or "")
+        if not rel:
+            raise ValueError("params.path is required")
+        return {"path": rel, "content": self.controller.read_file(task_id, rel)}
+
+    async def _agent_approve(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        self.controller.resolve_approval(task_id, True)
+        return {"ok": True}
+
+    async def _agent_reject(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        self.controller.resolve_approval(task_id, False)
+        return {"ok": True}
+
+    async def _agent_rollback(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        self.controller.rollback(task_id)
+        return {"ok": True}
+
+    async def _agent_accept(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        _task_id = str(params.get("task_id") or "")
+        return {"ok": True}
 
     async def _session_load(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
         session_id = str(params.get("session_id") or "default")

@@ -117,3 +117,29 @@ async def test_notification_throughput_without_deadlock() -> None:
 
     await asyncio.wait_for(emit_many(), timeout=10)
     assert stdout.getvalue().count('"method":"agent.event"') == 1000
+
+
+@pytest.mark.asyncio
+async def test_rpc_service_task_query_and_control(tmp_path: Path) -> None:
+    controller = MagicMock(spec=TaskController)
+    state = AgentState(task="demo", repository=str(tmp_path))
+    controller.public_task.return_value = {"task_id": state.task_id, "status": "running"}
+    controller.diff.return_value = "diff-text"
+    controller.tree.return_value = ["a.py"]
+    controller.read_file.return_value = "print('x')"
+    service = RpcService(tmp_path, controller=controller)
+
+    task = await service._agent_get_task("agent.get_task", {"task_id": state.task_id})
+    assert task["task_id"] == state.task_id
+    diff = await service._agent_diff("agent.diff", {"task_id": state.task_id})
+    assert diff["diff"] == "diff-text"
+    tree = await service._agent_tree("agent.tree", {"task_id": state.task_id})
+    assert tree["files"] == ["a.py"]
+    content = await service._agent_read_file(
+        "agent.read_file", {"task_id": state.task_id, "path": "a.py"}
+    )
+    assert content["content"] == "print('x')"
+    await service._agent_approve("agent.approve", {"task_id": state.task_id})
+    controller.resolve_approval.assert_called_once_with(state.task_id, True)
+    await service._agent_rollback("agent.rollback", {"task_id": state.task_id})
+    controller.rollback.assert_called_once_with(state.task_id)

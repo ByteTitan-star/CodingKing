@@ -28,6 +28,8 @@ jobs:
           CODERKING_OPENAI_API_KEY: test-key
           CODERKING_SANDBOX_MODE: local
         run: pytest -q -m "not docker"
+      - name: Desktop RPC bridge
+        run: node --test desktop/rpc-bridge.test.mjs
 
   docker-sandbox:
     runs-on: ubuntu-latest

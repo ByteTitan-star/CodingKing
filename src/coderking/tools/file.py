@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from coderking.tools.base import Tool, ToolResult
+from coderking.tools.read import read_path
 from coderking.workspace import ensure_inside, iter_files
 
 _OBJ = {"type": "object"}
@@ -52,22 +53,34 @@ class ReadFileTool(FileTool):
         super().__init__(
             workspace,
             name=name,
-            description=description or "Read a UTF-8 text file in the workspace.",
+            description=description
+            or "Read UTF-8 text, directory globs, or image files with line numbers.",
             parameters={
                 **_OBJ,
-                "properties": {"path": {"type": "string"}},
+                "properties": {
+                    "path": {"type": "string"},
+                    "offset": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                    "glob": {"type": "string"},
+                },
                 "required": ["path"],
             },
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        path = self._resolve(str(kwargs["path"]))
-        if not path.is_file():
-            return ToolResult(False, f"not found: {path}")
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if len(text) > 80_000:
-            text = text[:80_000] + "\n...[truncated]"
-        return ToolResult(True, text)
+        rel = str(kwargs["path"]).replace("\\", "/")
+        offset = int(kwargs.get("offset") or 1)
+        limit = int(kwargs.get("limit") or 2000)
+        glob = kwargs.get("glob")
+        glob_str = str(glob) if glob is not None else None
+        ok, output = read_path(
+            self.workspace,
+            rel,
+            offset=offset,
+            limit=limit,
+            glob=glob_str,
+        )
+        return ToolResult(ok, output)
 
 
 class WriteFileTool(FileTool):

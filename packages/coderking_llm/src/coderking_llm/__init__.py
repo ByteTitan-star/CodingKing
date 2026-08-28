@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from coderking_llm.openai_compat import (
+    OpenAICompatConfig,
+    OpenAICompatProvider,
+    parse_chat_completion,
+)
 from coderking_llm.protocols import (
     LLMMessage,
     StopReason,
@@ -9,6 +14,7 @@ from coderking_llm.protocols import (
     StreamFn,
     UsageStats,
 )
+from coderking_llm.provider import LLMProvider, LLMResponse, ToolCall
 from coderking_llm.retry import RetryPolicy, retry_async
 from coderking_llm.sse import AssembledResponse, assemble_stream_chunks
 
@@ -21,12 +27,18 @@ __all__ = [
     "LAYER_NAME",
     "AssembledResponse",
     "LLMMessage",
+    "LLMProvider",
+    "LLMResponse",
+    "OpenAICompatConfig",
+    "OpenAICompatProvider",
     "RetryPolicy",
     "StopReason",
     "StreamChunk",
     "StreamFn",
+    "ToolCall",
     "UsageStats",
     "assemble_stream_chunks",
+    "parse_chat_completion",
     "retry_async",
     "__version__",
 ]

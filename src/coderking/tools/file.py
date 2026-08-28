@@ -42,11 +42,17 @@ class FileTool(Tool):
 
 
 class ReadFileTool(FileTool):
-    def __init__(self, workspace: Path):
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        name: str = "read_file",
+        description: str | None = None,
+    ):
         super().__init__(
             workspace,
-            name="read_file",
-            description="Read a UTF-8 text file in the workspace.",
+            name=name,
+            description=description or "Read a UTF-8 text file in the workspace.",
             parameters={
                 **_OBJ,
                 "properties": {"path": {"type": "string"}},

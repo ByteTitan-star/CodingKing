@@ -107,10 +107,10 @@ def _short_diff(before: str, after: str, rel: str) -> str:
 
 
 class EditFileTool(FileTool):
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, *, name: str = "edit_file"):
         super().__init__(
             workspace,
-            name="edit_file",
+            name=name,
             description=(
                 "Replace old_string with new_string in a UTF-8 text file. "
                 "old_string must match exactly once unless replace_all is true."

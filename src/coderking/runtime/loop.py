@@ -36,12 +36,15 @@ from coderking.runtime.queues import RunMessageQueues
 from coderking.runtime.roles import ROLE_TOOLS
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.manager import create_sandbox
+from coderking.tools.dynamic_adapter import wrap_dynamic_tools
+from coderking.tools.dynamic_runner import SandboxToolRunner
 from coderking.tools.registry import build_tools
 from coderking_agent_core.fsm import LoopEvent, PhaseFSM
 from coderking_agent_core.types import LoopPhase
 from coderking_coding_agent.context.project_docs import inject_project_instructions
 from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
 from coderking_coding_agent.safety.policy import PolicyAction, PolicyDecision, PolicyEngine
+from coderking_coding_agent.tools.dynamic import DynamicToolLoader
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
@@ -86,6 +89,11 @@ class AgentRuntime:
         state.sandbox_backend = sandbox.name
         await on_event(sandbox_event(sandbox.name, "active", note=note))
         tools = build_tools(workspace, sandbox, self.settings)
+        dynamic_loader = DynamicToolLoader(
+            workspace,
+            SandboxToolRunner(sandbox, timeout_sec=self.settings.sandbox_timeout_sec),
+            timeout_sec=self.settings.sandbox_timeout_sec,
+        )
         skill_registry = SkillRegistry(workspace, include_cursor=False)
         policy_engine = PolicyEngine.load(workspace)
         if test_command:
@@ -177,7 +185,8 @@ class AgentRuntime:
                         skill_injected_event(skill.manifest.name, truncated=skill.truncated)
                     )
                 await fsm.advance(LoopEvent.CONTEXT_READY, on_phase_change=emit_phase)
-                allowed = ROLE_TOOLS[state.role]
+                tools.update(wrap_dynamic_tools(dynamic_loader.refresh()))
+                allowed = ROLE_TOOLS[state.role] | dynamic_loader.names()
                 schemas = [tools[name].schema() for name in allowed if name in tools]
                 complete = self.llm.complete
                 try:
@@ -215,6 +224,7 @@ class AgentRuntime:
                         auto_approve,
                         workspace,
                         policy_engine,
+                        dynamic_loader,
                     )
                     if queues:
                         steered = await queues.drain_steering()
@@ -266,13 +276,18 @@ class AgentRuntime:
         auto_approve: bool,
         workspace: Path,
         policy_engine: PolicyEngine,
+        dynamic_loader: DynamicToolLoader,
     ) -> None:
         tool = tools.get(call.name)
+        if tool is None:
+            tools.update(wrap_dynamic_tools(dynamic_loader.refresh()))
+            tool = tools.get(call.name)
+        dynamic_names = dynamic_loader.names()
         await on_event(tool_event(call.name, "running", arguments=call.arguments))
         if tool is None:
             output = f"unknown tool: {call.name}"
             ok = False
-        elif call.name not in ROLE_TOOLS[state.role]:
+        elif call.name not in ROLE_TOOLS[state.role] and call.name not in dynamic_names:
             output = f"tool {call.name} is not allowed in role {state.role}"
             ok = False
         else:

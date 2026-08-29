@@ -89,7 +89,7 @@ async def test_atomic_l1_scripted_edit_loop(tmp_path: Path) -> None:
     )
     assert state.status == TaskStatus.SUCCEEDED
     assert "return a + b" in (tmp_path / "calc.py").read_text(encoding="utf-8")
-    assert any(e.type == "tool" and e.data.get("status") == "ok" for e in events)
+    assert any(e.type == "tool_call" and e.payload.get("status") == "ok" for e in events)
     assert any(e.type == "done" for e in events)
     assert any(r.name == "edit" and r.ok for r in state.tool_history)
     names = {

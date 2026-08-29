@@ -1,7 +1,8 @@
-"""Facade AgentRuntime — wires Settings into L2 SWE harness (#23)."""
+"""Facade AgentRuntime — SWE harness or atomic L1 loop (#23)."""
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,9 @@ from coderking.runtime.cancel import CancellationToken
 from coderking.sandbox.cow import CowWorkspace
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
+from coderking_coding_agent.runtime.atomic_l1 import AtomicL1Runtime
 from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
+from coderking_coding_agent.runtime.events import AgentEvent
 from coderking_coding_agent.runtime.loop import (
     AgentRuntime as L2AgentRuntime,
 )
@@ -22,8 +25,12 @@ from coderking_coding_agent.runtime.loop import (
     _inject_steering,
     _inject_steering_messages,
 )
-from coderking_coding_agent.runtime.state import Role
+from coderking_coding_agent.runtime.queues import RunMessageQueues
+from coderking_coding_agent.runtime.state import AgentState, Role
 from coderking_llm.provider import LLMProvider
+
+EventSink = Callable[[AgentEvent], Awaitable[None]]
+ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
 
 
 def _bindings_for(settings: Settings) -> HarnessBindings:
@@ -52,8 +59,8 @@ def _config_for(settings: Settings) -> HarnessConfig:
     )
 
 
-class AgentRuntime(L2AgentRuntime):
-    """Compatibility wrapper preserving ``AgentRuntime(settings, llm, ...)``."""
+class AgentRuntime:
+    """Compatibility wrapper: ``extension=atomic`` → L1 loop; else SWE L2 harness."""
 
     def __init__(
         self,
@@ -64,12 +71,57 @@ class AgentRuntime(L2AgentRuntime):
         cancel: CancellationToken | None = None,
     ) -> None:
         self.settings = settings
-        super().__init__(
-            _config_for(settings),
-            llm,
-            _bindings_for(settings),
-            memory=memory,
-            cancel=cancel,
+        self.llm = llm
+        self.memory = memory
+        self.cancel = cancel or CancellationToken()
+        config = _config_for(settings)
+        bindings = _bindings_for(settings)
+        if settings.extension == "atomic":
+            self._backend: L2AgentRuntime | AtomicL1Runtime = AtomicL1Runtime(
+                config,
+                llm,
+                bindings,
+                system_prompt=resolve_system_prompt(settings, Role.CODING),
+                cancel=self.cancel,
+            )
+        else:
+            self._backend = L2AgentRuntime(
+                config,
+                llm,
+                bindings,
+                memory=memory,
+                cancel=self.cancel,
+            )
+
+    async def run(
+        self,
+        prompt: str,
+        workspace: Path,
+        *,
+        on_event: EventSink,
+        approve: ApprovalFn | None = None,
+        auto_approve: bool = False,
+        test_command: str | None = None,
+        state: AgentState | None = None,
+        queues: RunMessageQueues | None = None,
+    ) -> AgentState:
+        if isinstance(self._backend, AtomicL1Runtime):
+            return await self._backend.run(
+                prompt,
+                workspace,
+                on_event=on_event,
+                queues=queues,
+                state=state,
+            )
+        return await self._backend.run(
+            prompt,
+            workspace,
+            on_event=on_event,
+            approve=approve,
+            auto_approve=auto_approve,
+            test_command=test_command,
+            state=state,
+            queues=queues,
         )
 
 

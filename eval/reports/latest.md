@@ -1,20 +1,20 @@
 # CoderKing eval report (`latest`)
 
-Generated: 2026-08-28T05:46:21.803137+00:00
+Generated: 2026-08-29T14:58:19.512715+00:00
 
 ## Summary
 
 - task_success_rate: 1.0
 - test_pass_rate: 1.0
 - repair_success_rate: 0.0
-- avg_iterations: 5.0
-- avg_tool_calls: 5.0
-- token_usage: 0.0
+- avg_iterations: 7.333333333333333
+- avg_tool_calls: 8.0
+- token_usage: 24526.0
 
 ## Extra
 
-- llm: scripted fixture (no live API key in this environment)
-- docker_unit: see tests/test_docker.py
+- llm: {'mode': 'live', 'model': 'glm-5.2', 'base_url': 'https://open.bigmodel.cn/api/coding/paas/v4'}
+- sandbox_mode: local
 
 ## Tasks
 
@@ -23,19 +23,18 @@ Generated: 2026-08-28T05:46:21.803137+00:00
 - success: True
 - test_pass: True
 - iterations: 5
-- tool_calls: 5
+- tool_calls: 6
 - repair_count: 0
-- model: gpt-4o-mini
+- model: glm-5.2
 - changed_files: calc.py
-- tokens: 0 / 0
+- tokens: 3791 / 329
 
 ```diff
 --- calc.py
 +++ calc.py
 @@ -1,2 +1,2 @@
--def add(a: int, b: int) -> int:
+ def add(a: int, b: int) -> int:
 -    return a - b
-+def add(a, b):
 +    return a + b
 
 ```
@@ -44,12 +43,12 @@ Generated: 2026-08-28T05:46:21.803137+00:00
 
 - success: True
 - test_pass: True
-- iterations: 5
-- tool_calls: 5
+- iterations: 9
+- tool_calls: 9
 - repair_count: 0
-- model: gpt-4o-mini
-- changed_files: greet.py
-- tokens: 0 / 0
+- model: glm-5.2
+- changed_files: (none)
+- tokens: 11201 / 611
 
 ```diff
 --- greet.py
@@ -65,24 +64,26 @@ Generated: 2026-08-28T05:46:21.803137+00:00
 
 - success: True
 - test_pass: True
-- iterations: 5
-- tool_calls: 5
+- iterations: 8
+- tool_calls: 9
 - repair_count: 0
-- model: gpt-4o-mini
+- model: glm-5.2
 - changed_files: geometry.py
-- tokens: 0 / 0
+- tokens: 8042 / 552
 
 ```diff
 --- geometry.py
 +++ geometry.py
-@@ -1,6 +1,8 @@
+@@ -1,6 +1,10 @@
 -def box_area(w: int, h: int) -> int:
 +def rect_area(w: int, h: int) -> int:
      return w * h
  
+ 
 +def box_area(w: int, h: int) -> int:
 +    return rect_area(w, h)
- 
++
++
  def square_area(side: int) -> int:
 -    return side * side
 +    return rect_area(side, side)

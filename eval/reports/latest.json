@@ -1,16 +1,20 @@
 {
-  "generated_at": "2026-08-28T05:46:21.803137+00:00",
+  "generated_at": "2026-08-29T14:58:19.512715+00:00",
   "summary": {
     "task_success_rate": 1.0,
     "test_pass_rate": 1.0,
     "repair_success_rate": 0.0,
-    "avg_iterations": 5.0,
-    "avg_tool_calls": 5.0,
-    "token_usage": 0.0
+    "avg_iterations": 7.333333333333333,
+    "avg_tool_calls": 8.0,
+    "token_usage": 24526.0
   },
   "extra": {
-    "llm": "scripted fixture (no live API key in this environment)",
-    "docker_unit": "see tests/test_docker.py"
+    "llm": {
+      "mode": "live",
+      "model": "glm-5.2",
+      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4"
+    },
+    "sandbox_mode": "local"
   },
   "results": [
     {
@@ -21,57 +25,55 @@
       "iterations": 5,
       "repair_used": false,
       "repair_count": 0,
-      "tool_calls": 5,
-      "prompt_tokens": 0,
-      "completion_tokens": 0,
+      "tool_calls": 6,
+      "prompt_tokens": 3791,
+      "completion_tokens": 329,
       "changed_files": [
         "calc.py"
       ],
       "first_test_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.01s",
       "final_test_result": ".                                                                        [100%]\r\n1 passed in 0.00s",
-      "diff": "--- calc.py\n+++ calc.py\n@@ -1,2 +1,2 @@\n-def add(a: int, b: int) -> int:\n-    return a - b\n+def add(a, b):\n+    return a + b\n",
+      "diff": "--- calc.py\n+++ calc.py\n@@ -1,2 +1,2 @@\n def add(a: int, b: int) -> int:\n-    return a - b\n+    return a + b\n",
       "error": "",
-      "model": "gpt-4o-mini"
+      "model": "glm-5.2"
     },
     {
       "task_id": "feature_add_greet",
       "category": "feature_add",
       "success": true,
       "test_pass": true,
-      "iterations": 5,
+      "iterations": 9,
       "repair_used": false,
       "repair_count": 0,
-      "tool_calls": 5,
-      "prompt_tokens": 0,
-      "completion_tokens": 0,
-      "changed_files": [
-        "greet.py"
-      ],
+      "tool_calls": 9,
+      "prompt_tokens": 11201,
+      "completion_tokens": 611,
+      "changed_files": [],
       "first_test_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.01s",
       "final_test_result": ".                                                                        [100%]\r\n1 passed in 0.00s",
       "diff": "--- greet.py\n+++ greet.py\n@@ -1,2 +1,2 @@\n def greet(name: str) -> str:\n-    raise NotImplementedError\n+    return f\"hello, {name}\"\n",
       "error": "",
-      "model": "gpt-4o-mini"
+      "model": "glm-5.2"
     },
     {
       "task_id": "refactor_area",
       "category": "refactor",
       "success": true,
       "test_pass": true,
-      "iterations": 5,
+      "iterations": 8,
       "repair_used": false,
       "repair_count": 0,
-      "tool_calls": 5,
-      "prompt_tokens": 0,
-      "completion_tokens": 0,
+      "tool_calls": 9,
+      "prompt_tokens": 8042,
+      "completion_tokens": 552,
       "changed_files": [
         "geometry.py"
       ],
-      "first_test_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.01s",
+      "first_test_result": "exit=0 backend=local\n.                                                                        [100%]\r\n1 passed in 0.02s",
       "final_test_result": ".                                                                        [100%]\r\n1 passed in 0.00s",
-      "diff": "--- geometry.py\n+++ geometry.py\n@@ -1,6 +1,8 @@\n-def box_area(w: int, h: int) -> int:\n+def rect_area(w: int, h: int) -> int:\n     return w * h\n \n+def box_area(w: int, h: int) -> int:\n+    return rect_area(w, h)\n \n def square_area(side: int) -> int:\n-    return side * side\n+    return rect_area(side, side)\n",
+      "diff": "--- geometry.py\n+++ geometry.py\n@@ -1,6 +1,10 @@\n-def box_area(w: int, h: int) -> int:\n+def rect_area(w: int, h: int) -> int:\n     return w * h\n \n \n+def box_area(w: int, h: int) -> int:\n+    return rect_area(w, h)\n+\n+\n def square_area(side: int) -> int:\n-    return side * side\n+    return rect_area(side, side)\n",
       "error": "",
-      "model": "gpt-4o-mini"
+      "model": "glm-5.2"
     }
   ]
 }

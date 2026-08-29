@@ -21,3 +21,6 @@ web/.vite/
 .DS_Store
 Thumbs.db
 *.log
+
+intro-site/dist/
+intro-site/.vite/

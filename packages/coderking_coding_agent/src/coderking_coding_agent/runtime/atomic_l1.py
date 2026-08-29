@@ -268,9 +268,7 @@ async def _bridge_l1_event(
         preview = str(event.get("output") or "")[:500]
         arguments = pending_args.pop(call_id, {})
         await on_event(tool_event(name, "ok" if ok else "error", preview=preview))
-        state.tool_history.append(
-            ToolRecord(name=name, arguments=arguments, output=preview, ok=ok)
-        )
+        state.tool_history.append(ToolRecord(name=name, arguments=arguments, output=preview, ok=ok))
         return
     if kind == "error":
         await on_event(error_event(str(event.get("message") or "error")))

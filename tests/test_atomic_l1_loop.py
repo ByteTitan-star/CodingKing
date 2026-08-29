@@ -93,8 +93,6 @@ async def test_atomic_l1_scripted_edit_loop(tmp_path: Path) -> None:
     assert any(e.type == "done" for e in events)
     assert any(r.name == "edit" and r.ok for r in state.tool_history)
     names = {
-        (t.get("function") or {}).get("name")
-        for t in (llm.last_tools or [])
-        if isinstance(t, dict)
+        (t.get("function") or {}).get("name") for t in (llm.last_tools or []) if isinstance(t, dict)
     }
     assert names == {"read", "write", "edit", "bash"}

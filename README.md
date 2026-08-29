@@ -1,7 +1,7 @@
 <h1 align="center">💻 CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.6"><img src="https://img.shields.io/badge/CoderKing-v1.0.6-2563eb" alt="CoderKing v1.0.6" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.7"><img src="https://img.shields.io/badge/CoderKing-v1.0.7-2563eb" alt="CoderKing v1.0.7" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>

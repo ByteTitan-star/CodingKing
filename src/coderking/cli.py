@@ -344,11 +344,16 @@ async def _eval(eval_root: Path, report_dir: Path, settings) -> None:
     console.print(table)
     summary = summarize(results)
     console.print(summary)
-    json_path, md_path = write_reports(
-        results,
-        report_dir,
-        extra={"model": settings.model, "sandbox_mode": settings.sandbox_mode},
-    )
+    extra = {
+        "llm": {
+            "mode": "live",
+            "model": settings.model,
+            "base_url": settings.openai_base_url,
+        },
+        "sandbox_mode": settings.sandbox_mode,
+    }
+    json_path, md_path = write_reports(results, report_dir, stem="latest", extra=extra)
+    write_reports(results, report_dir, stem="phase1-report", extra=extra)
     console.print(f"wrote {json_path} and {md_path}")
     if not results:
         discovered = discover_tasks(eval_root)

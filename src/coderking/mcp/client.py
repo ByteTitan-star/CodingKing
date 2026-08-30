@@ -54,7 +54,7 @@ class McpStdioSession:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": {"name": "coderking", "version": "1.0.8"},
+                "clientInfo": {"name": "coderking", "version": "1.0.9"},
             },
         )
         await self._notify("notifications/initialized", {})

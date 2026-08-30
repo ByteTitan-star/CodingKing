@@ -11,6 +11,7 @@ from coderking_coding_agent.sandbox.credentials import (
     is_secret_path,
     redact_tool_arguments,
     scrub_env,
+    scrub_secret_text,
     secret_ignore_names,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "is_secret_path",
     "redact_tool_arguments",
     "scrub_env",
+    "scrub_secret_text",
     "secret_ignore_names",
 ]

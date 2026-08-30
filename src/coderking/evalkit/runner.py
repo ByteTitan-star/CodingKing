@@ -118,12 +118,33 @@ def write_reports(
     stem: str = "latest",
     extra: dict | None = None,
 ) -> tuple[Path, Path]:
+    from coderking_coding_agent.sandbox.credentials import (
+        contains_secret_marker,
+        redact_tool_arguments,
+        scrub_secret_text,
+    )
+
+    def _scrub_text(text: str, *, max_len: int = 8000) -> str:
+        cleaned = (
+            scrub_secret_text(text or "") if contains_secret_marker(text or "") else (text or "")
+        )
+        if len(cleaned) > max_len:
+            cleaned = cleaned[:max_len] + f"\n…<truncated n={len(cleaned) - max_len}>"
+        return cleaned
+
     out_dir.mkdir(parents=True, exist_ok=True)
+    safe_results = []
+    for item in results:
+        row = asdict(item)
+        for field in ("diff", "first_test_result", "final_test_result", "error"):
+            if isinstance(row.get(field), str):
+                row[field] = _scrub_text(row[field])
+        safe_results.append(row)
     payload = {
         "generated_at": datetime.now(UTC).isoformat(),
         "summary": summarize(results),
-        "extra": extra or {},
-        "results": [asdict(item) for item in results],
+        "extra": redact_tool_arguments(extra or {}) if extra else {},
+        "results": safe_results,
     }
     json_path = out_dir / f"{stem}.json"
     md_path = out_dir / f"{stem}.md"
@@ -140,25 +161,25 @@ def write_reports(
         lines.append(f"- {key}: {value}")
     if extra:
         lines.extend(["", "## Extra", ""])
-        for key, value in extra.items():
+        for key, value in payload["extra"].items():
             lines.append(f"- {key}: {value}")
     lines.extend(["", "## Tasks", ""])
-    for row in results:
+    for row in safe_results:
         lines.extend(
             [
-                f"### {row.task_id} ({row.category})",
+                f"### {row['task_id']} ({row['category']})",
                 "",
-                f"- success: {row.success}",
-                f"- test_pass: {row.test_pass}",
-                f"- iterations: {row.iterations}",
-                f"- tool_calls: {row.tool_calls}",
-                f"- repair_count: {row.repair_count}",
-                f"- model: {row.model}",
-                f"- changed_files: {', '.join(row.changed_files) or '(none)'}",
-                f"- tokens: {row.prompt_tokens} / {row.completion_tokens}",
+                f"- success: {row['success']}",
+                f"- test_pass: {row['test_pass']}",
+                f"- iterations: {row['iterations']}",
+                f"- tool_calls: {row['tool_calls']}",
+                f"- repair_count: {row['repair_count']}",
+                f"- model: {row['model']}",
+                f"- changed_files: {', '.join(row['changed_files']) or '(none)'}",
+                f"- tokens: {row['prompt_tokens']} / {row['completion_tokens']}",
                 "",
                 "```diff",
-                (row.diff or "(no diff)")[:8000],
+                (row.get("diff") or "(no diff)"),
                 "```",
                 "",
             ]

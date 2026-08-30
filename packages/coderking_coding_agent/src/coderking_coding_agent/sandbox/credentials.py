@@ -139,6 +139,10 @@ def contains_secret_marker(text: str) -> bool:
     return bool(_SECRET_VALUE_RE.search(text))
 
 
+def scrub_secret_text(text: str) -> str:
+    return _SECRET_VALUE_RE.sub("<redacted>", text)
+
+
 _SENSITIVE_ARG_KEYS = frozenset(
     {
         "content",

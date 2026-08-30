@@ -43,6 +43,7 @@ DEFAULT_POLICY: dict[str, Any] = {
                 r":\(\)\{",
             ],
             "ask_patterns": [r"git\s+push", r"npm\s+publish"],
+            "deny_paths": [".env", ".env.*", "**/secrets/**", "**/.env", "*.pem", "*.key"],
         },
         "shell": {
             "deny_patterns": [
@@ -54,6 +55,7 @@ DEFAULT_POLICY: dict[str, Any] = {
                 r":\(\)\{",
             ],
             "ask_patterns": [r"git\s+push", r"npm\s+publish"],
+            "deny_paths": [".env", ".env.*", "**/secrets/**", "**/.env", "*.pem", "*.key"],
         },
         "write": {
             "deny_paths": [".env", ".env.*", "**/secrets/**", "**/.env"],
@@ -133,6 +135,13 @@ class PolicyEngine:
             asked = _match_patterns(command, rules.get("ask_patterns") or [], regex=True)
             if asked:
                 return PolicyDecision(PolicyAction.ASK, f"ask pattern matched: {asked}", asked)
+            path_hit = _command_secret_path_hit(command, rules.get("deny_paths") or [])
+            if path_hit:
+                return PolicyDecision(
+                    PolicyAction.DENY,
+                    f"deny path matched in command: {path_hit}",
+                    path_hit,
+                )
 
         rel_path = str(arguments.get("path") or "")
         if rel_path:
@@ -170,6 +179,34 @@ class PolicyEngine:
             self.evaluate(name, args, legacy_requires_approval=flags.get(name, False))
             for name, args in calls
         ]
+
+
+_TOKEN_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"|(\S+)")
+_PATHISH_RE = re.compile(r"[/\\.]|env|pem|\.key|secret|credential", re.I)
+
+
+def _command_path_tokens(command: str) -> list[str]:
+    tokens: list[str] = []
+    for match in _TOKEN_RE.finditer(command):
+        token = next((group for group in match.groups() if group is not None), "")
+        if not token:
+            continue
+        cleaned = token.strip(";,<>|&")
+        if cleaned and _PATHISH_RE.search(cleaned):
+            tokens.append(cleaned)
+    return tokens
+
+
+def _command_secret_path_hit(command: str, deny_paths: list[Any]) -> str | None:
+    from coderking_coding_agent.sandbox.credentials import is_secret_path
+
+    for token in _command_path_tokens(command):
+        for pattern in deny_paths:
+            if _path_matches(str(pattern), token):
+                return str(pattern)
+        if is_secret_path(token):
+            return token
+    return None
 
 
 def _match_patterns(text: str, patterns: list[Any], *, regex: bool) -> str | None:

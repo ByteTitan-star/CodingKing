@@ -71,16 +71,60 @@ def test_parse_allow_hosts_csv_and_list() -> None:
 
 @pytest.mark.asyncio
 async def test_allowlist_proxy_denies_and_allows() -> None:
+    import base64
+
     from coderking.sandbox.network import AllowlistProxy
 
     policy = NetworkPolicy(mode="restricted", allow_hosts=("example.com",))
     async with AllowlistProxy(policy, host="127.0.0.1") as proxy:
-        # Denied CONNECT
+        auth = base64.b64encode(f"ck:{proxy.token}".encode()).decode()
+        # Missing auth → 407
         reader, writer = await asyncio.open_connection("127.0.0.1", proxy.port)
         writer.write(b"CONNECT google.com:443 HTTP/1.1\r\nHost: google.com:443\r\n\r\n")
         await writer.drain()
         status = await reader.readline()
         writer.close()
         await writer.wait_closed()
+        assert b"407" in status
+
+        # Authenticated but denied host → 403
+        reader, writer = await asyncio.open_connection("127.0.0.1", proxy.port)
+        writer.write(
+            (
+                "CONNECT google.com:443 HTTP/1.1\r\n"
+                f"Host: google.com:443\r\n"
+                f"Proxy-Authorization: Basic {auth}\r\n\r\n"
+            ).encode()
+        )
+        await writer.drain()
+        status = await reader.readline()
+        writer.close()
+        await writer.wait_closed()
         assert b"403" in status
         assert "google.com" in proxy.denials
+        assert "ck:" in proxy.url and proxy.token in proxy.url
+
+
+@pytest.mark.asyncio
+async def test_docker_proxy_url_includes_auth_and_loopback_bind_off_linux() -> None:
+    import sys
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from coderking.sandbox.docker import DockerSandbox
+    from coderking.sandbox.network import NetworkPolicy
+
+    sandbox = DockerSandbox(
+        Path("."),
+        image="python:3.12-slim",
+        memory_mb=256,
+        cpus=0.5,
+        network_policy=NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",)),
+    )
+    with patch.object(sys, "platform", "win32"):
+        url, proxy = await sandbox._proxy_url_for_container()
+        assert proxy is not None
+        assert proxy.host == "127.0.0.1"
+        assert url.startswith("http://ck:")
+        assert "@host.docker.internal:" in url
+        await proxy.stop()

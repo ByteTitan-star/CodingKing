@@ -38,13 +38,27 @@ run with a scrubbed environment and a secret-aware workspace clone.
 
 | Mode | Behavior |
 |------|----------|
-| `none` (default) | Docker `--network none` |
+| `none` (default) | Docker `--network none` (no egress) |
 | `full` | Default bridge (legacy `sandbox_network=true`) |
-| `restricted` | Bridge + host allowlist proxy (`HTTP(S)_PROXY`) |
+| `restricted` | Default bridge + host allowlist proxy (`HTTP(S)_PROXY`) + `--dns 127.0.0.1` |
 
 Configure via `CODERKING_SANDBOX_NETWORK_MODE` / `sandbox_network_mode` and
 `CODERKING_SANDBOX_ALLOW_HOSTS` (comma-separated). Misconfigured `restricted`
 without hosts raises a clear `ValueError`.
+
+### Restricted mode is proxy best-effort
+
+`restricted` does **not** enforce container-boundary egress isolation (it does
+not use `--network none`). It:
+
+1. Starts a host-side allowlist HTTP proxy (Basic auth) and injects `HTTP(S)_PROXY`
+2. Points container DNS at `127.0.0.1` so hostname lookups that skip the proxy fail
+3. Still allows processes that ignore the proxy **and** use raw IP literals to reach
+   the public internet on the default Docker bridge
+
+Treat `restricted` as a cooperation layer for package managers / HTTP clients that
+honor proxy env vars—not as a hard network jail. Prefer `none` when egress is not
+required.
 
 ## Micro-VM backend
 

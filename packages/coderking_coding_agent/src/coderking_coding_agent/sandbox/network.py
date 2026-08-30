@@ -86,9 +86,34 @@ class NetworkPolicy:
     def needs_proxy(self) -> bool:
         return self.mode == "restricted"
 
+    @property
+    def is_proxy_best_effort(self) -> bool:
+        """True when egress is allowlist-proxy only (not container-boundary isolation)."""
+        return self.mode == "restricted"
+
+    def limitation_note(self) -> str | None:
+        """Human-readable caveat for operators / sandbox start notes."""
+        if not self.is_proxy_best_effort:
+            return None
+        return (
+            "restricted network is proxy best-effort: HTTP(S)_PROXY + allowlist; "
+            "processes that ignore the proxy or use raw IP literals can still egress "
+            "(DNS for hostnames is pointed at 127.0.0.1 to reduce accidental bypass)"
+        )
+
     def docker_network_args(self) -> list[str]:
+        """Docker CLI network flags for this policy.
+
+        ``restricted`` keeps the default bridge (so the allowlist proxy on the host
+        is reachable) and sets ``--dns 127.0.0.1`` so hostname lookups that skip the
+        proxy fail. This is **not** true container-boundary egress isolation —
+        see ``limitation_note()``.
+        """
         if self.mode == "none":
             return ["--network", "none"]
+        if self.mode == "restricted":
+            # Best-effort: break non-proxy hostname resolution. IP literals still bypass.
+            return ["--dns", "127.0.0.1"]
         return []
 
     def proxy_env(self) -> dict[str, str]:
@@ -101,9 +126,14 @@ class NetworkPolicy:
             "https_proxy": self.proxy_url,
             "ALL_PROXY": self.proxy_url,
             "all_proxy": self.proxy_url,
-            "NO_PROXY": "localhost,127.0.0.1",
-            "no_proxy": "localhost,127.0.0.1",
+            "NO_PROXY": "localhost,127.0.0.1,host.docker.internal",
+            "no_proxy": "localhost,127.0.0.1,host.docker.internal",
         }
+
+    def warn_if_best_effort(self) -> None:
+        note = self.limitation_note()
+        if note:
+            log.warning("sandbox network: %s", note)
 
     def with_proxy_url(self, url: str) -> NetworkPolicy:
         return NetworkPolicy(mode=self.mode, allow_hosts=self.allow_hosts, proxy_url=url)

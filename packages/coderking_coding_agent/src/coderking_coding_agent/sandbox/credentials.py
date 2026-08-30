@@ -137,3 +137,47 @@ def secret_ignore_names(directory: str, names: list[str]) -> set[str]:
 
 def contains_secret_marker(text: str) -> bool:
     return bool(_SECRET_VALUE_RE.search(text))
+
+
+_SENSITIVE_ARG_KEYS = frozenset(
+    {
+        "content",
+        "token",
+        "password",
+        "secret",
+        "api_key",
+        "apikey",
+        "authorization",
+        "auth",
+    }
+)
+_SENSITIVE_KEY_FRAGMENTS = ("secret", "token", "password", "api_key", "apikey")
+
+
+def redact_tool_arguments(arguments: dict[str, object], *, max_len: int = 200) -> dict[str, object]:
+    """Return a copy of tool arguments safe for audit / report persistence."""
+    redacted: dict[str, object] = {}
+    for key, value in arguments.items():
+        key_l = str(key).lower()
+        sensitive_key = key_l in _SENSITIVE_ARG_KEYS or any(
+            frag in key_l for frag in _SENSITIVE_KEY_FRAGMENTS
+        )
+        if sensitive_key:
+            text = str(value)
+            redacted[key] = f"<redacted len={len(text)}>"
+            continue
+        if isinstance(value, str):
+            text = (
+                _SECRET_VALUE_RE.sub("<redacted>", value)
+                if contains_secret_marker(value)
+                else value
+            )
+            if len(text) > max_len:
+                redacted[key] = text[:max_len] + f"…<truncated n={len(text) - max_len}>"
+            else:
+                redacted[key] = text
+        elif isinstance(value, dict):
+            redacted[key] = redact_tool_arguments(value, max_len=max_len)  # type: ignore[arg-type]
+        else:
+            redacted[key] = value
+    return redacted

@@ -9,6 +9,7 @@ from coderking_coding_agent.sandbox.credentials import (
     contains_secret_marker,
     is_secret_env_name,
     is_secret_path,
+    redact_tool_arguments,
     scrub_env,
     secret_ignore_names,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "contains_secret_marker",
     "is_secret_env_name",
     "is_secret_path",
+    "redact_tool_arguments",
     "scrub_env",
     "secret_ignore_names",
 ]

@@ -11,6 +11,7 @@ from coderking.sandbox.cow import clone_workspace
 from coderking.sandbox.credentials import (
     contains_secret_marker,
     is_secret_path,
+    redact_tool_arguments,
     scrub_env,
 )
 from coderking.sandbox.docker import DockerSandbox, _docker_env_args
@@ -48,6 +49,24 @@ def test_secret_path_patterns() -> None:
     assert is_secret_path("certs/server.pem")
     assert not is_secret_path("src/main.py")
     assert not is_secret_path("README.md")
+
+
+def test_redact_tool_arguments_strips_secrets_and_truncates() -> None:
+    out = redact_tool_arguments(
+        {
+            "path": "ok.py",
+            "content": "SECRET=sk-abcdefghijklmnopqrstuvwxyz",
+            "command": "echo hi " + ("x" * 300),
+            "nested": {"api_key": "token-value"},
+        },
+        max_len=40,
+    )
+    assert out["path"] == "ok.py"
+    assert out["content"] == "<redacted len=35>" or "redacted" in str(out["content"]).lower()
+    assert "sk-" not in str(out["content"])
+    assert str(out["command"]).startswith("echo hi ")
+    assert "truncated" in str(out["command"])
+    assert "redacted" in str(out["nested"]).lower()
 
 
 def test_clone_workspace_excludes_secrets(tmp_path: Path) -> None:

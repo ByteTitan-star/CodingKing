@@ -567,6 +567,7 @@ def _audit_policy_decision(
     if decision.action.value == "allow":
         return
     try:
+        from coderking_coding_agent.sandbox.credentials import redact_tool_arguments
         from coderking_coding_agent.session.repo import SessionRepo
 
         repo = SessionRepo(workspace, session_id="policy-audit")
@@ -574,7 +575,7 @@ def _audit_policy_decision(
             "audit",
             {
                 "tool": tool_name,
-                "arguments": arguments,
+                "arguments": redact_tool_arguments(arguments),
                 "decision": decision.to_dict(),
             },
         )

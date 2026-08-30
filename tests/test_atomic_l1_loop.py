@@ -96,3 +96,118 @@ async def test_atomic_l1_scripted_edit_loop(tmp_path: Path) -> None:
         (t.get("function") or {}).get("name") for t in (llm.last_tools or []) if isinstance(t, dict)
     }
     assert names == {"read", "write", "edit", "bash"}
+
+
+@pytest.mark.asyncio
+async def test_atomic_l1_denies_secret_path_write(tmp_path: Path) -> None:
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                "",
+                [_call("write", path=".env", content="SECRET=1")],
+            ),
+            LLMResponse("done", []),
+        ]
+    )
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    state = await AgentRuntime(_settings(tmp_path), llm).run(
+        "write secrets",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+    )
+    assert state.status == TaskStatus.SUCCEEDED
+    assert not (tmp_path / ".env").exists()
+    assert any(e.type == "policy_decision" and e.payload.get("action") == "deny" for e in events)
+    assert any(r.name == "write" and not r.ok for r in state.tool_history)
+
+
+@pytest.mark.asyncio
+async def test_atomic_l1_denies_dangerous_bash(tmp_path: Path) -> None:
+    llm = ScriptedLLM(
+        [
+            LLMResponse("", [_call("bash", command="rm -rf /")]),
+            LLMResponse("done", []),
+        ]
+    )
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    state = await AgentRuntime(_settings(tmp_path), llm).run(
+        "destroy",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+    )
+    assert state.status == TaskStatus.SUCCEEDED
+    assert any(e.type == "policy_decision" and e.payload.get("action") == "deny" for e in events)
+    assert any(r.name == "bash" and not r.ok for r in state.tool_history)
+
+
+@pytest.mark.asyncio
+async def test_atomic_l1_ask_requires_approval(tmp_path: Path) -> None:
+    llm = ScriptedLLM(
+        [
+            LLMResponse("", [_call("bash", command="git push origin main")]),
+            LLMResponse("done", []),
+        ]
+    )
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    state = await AgentRuntime(_settings(tmp_path), llm).run(
+        "push",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=False,
+        approve=None,
+    )
+    assert state.status == TaskStatus.SUCCEEDED
+    assert any(e.type == "approval_required" for e in events)
+    assert any(r.name == "bash" and not r.ok for r in state.tool_history)
+
+
+@pytest.mark.asyncio
+async def test_atomic_l1_ask_auto_approve_allows(tmp_path: Path) -> None:
+    llm = ScriptedLLM(
+        [
+            LLMResponse("", [_call("bash", command="echo hi")]),
+            LLMResponse("done", []),
+        ]
+    )
+    # Use ask_patterns via workspace policy for a safe command.
+    policy = tmp_path / ".coderking"
+    policy.mkdir(parents=True)
+    (policy / "policy.yaml").write_text(
+        "tools:\n  bash:\n    ask_patterns:\n      - echo\\s+hi\n",
+        encoding="utf-8",
+    )
+    approved: list[str] = []
+
+    async def approve(name: str, reason: str, arguments: dict) -> bool:  # noqa: ANN001
+        approved.append(name)
+        return True
+
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    state = await AgentRuntime(_settings(tmp_path), llm).run(
+        "echo",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=False,
+        approve=approve,
+    )
+    assert state.status == TaskStatus.SUCCEEDED
+    assert approved == ["bash"]
+    assert any(r.name == "bash" and r.ok for r in state.tool_history)

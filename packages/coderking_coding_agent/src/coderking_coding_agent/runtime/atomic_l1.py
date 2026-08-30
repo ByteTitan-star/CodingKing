@@ -17,29 +17,70 @@ from coderking_agent_core.types import AgentContext, AgentMessage, AgentTool
 from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
+    approval_event,
     done_event,
     error_event,
     phase_change_event,
+    policy_event,
     sandbox_event,
     status_event,
     token_event,
     tool_event,
 )
+from coderking_coding_agent.runtime.loop import _audit_policy_decision
 from coderking_coding_agent.runtime.queues import RunMessageQueues
 from coderking_coding_agent.runtime.state import AgentState, Role, TaskStatus, ToolRecord
+from coderking_coding_agent.safety.policy import PolicyAction, PolicyEngine
 from coderking_coding_agent.sandbox.cow import CowWorkspace
 from coderking_coding_agent.tools.base import Tool
 from coderking_llm.provider import LLMProvider
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
+ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
 
 
-def wrap_phase1_tool(tool: Tool) -> AgentTool:
+def wrap_phase1_tool(
+    tool: Tool,
+    *,
+    policy_engine: PolicyEngine,
+    on_event: EventSink,
+    source: Path,
+    state: AgentState,
+    approve: ApprovalFn | None,
+    auto_approve: bool,
+) -> AgentTool:
     schema = tool.schema()
     fn = schema.get("function") or {}
     parameters = fn.get("parameters") or tool.parameters
 
     async def execute(**kwargs: Any) -> tuple[bool, str]:
+        legacy_approval = bool(getattr(tool, "requires_approval", False))
+        decision = policy_engine.evaluate(
+            tool.name,
+            kwargs,
+            legacy_requires_approval=legacy_approval,
+        )
+        await on_event(
+            policy_event(
+                decision.action.value,
+                tool.name,
+                decision.reason,
+                rule=decision.rule,
+                arguments=kwargs,
+            )
+        )
+        _audit_policy_decision(source, tool.name, kwargs, decision)
+        if decision.action == PolicyAction.DENY:
+            return False, f"policy denied: {decision.reason}"
+        if decision.action == PolicyAction.ASK and not auto_approve:
+            state.status = TaskStatus.WAITING_APPROVAL
+            await on_event(approval_event(decision.reason, tool.name, kwargs))
+            allowed = False
+            if approve is not None:
+                allowed = await approve(tool.name, decision.reason, kwargs)
+            state.status = TaskStatus.RUNNING
+            if not allowed:
+                return False, "user rejected the operation"
         result = await tool.execute(**kwargs)
         return bool(result.ok), str(result.output)
 
@@ -112,6 +153,8 @@ class AtomicL1Runtime:
         on_event: EventSink,
         queues: RunMessageQueues | None = None,
         state: AgentState | None = None,
+        approve: ApprovalFn | None = None,
+        auto_approve: bool = False,
     ) -> AgentState:
         workspace = workspace.resolve()
         source = workspace
@@ -131,8 +174,20 @@ class AtomicL1Runtime:
         await on_event(sandbox_event(sandbox.name, "active", note=note))
         await on_event(status_event(state.role, state.status))
 
+        policy_engine = PolicyEngine.load(source)
         phase1_tools = dict(self.bindings.build_tools(workspace, sandbox))
-        agent_tools = [wrap_phase1_tool(tool) for tool in phase1_tools.values()]
+        agent_tools = [
+            wrap_phase1_tool(
+                tool,
+                policy_engine=policy_engine,
+                on_event=on_event,
+                source=source,
+                state=state,
+                approve=approve,
+                auto_approve=auto_approve,
+            )
+            for tool in phase1_tools.values()
+        ]
         context = AgentContext(system_prompt=self.system_prompt, tools=agent_tools)
 
         async def complete_turn(ctx: AgentContext) -> TurnResult:

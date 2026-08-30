@@ -64,12 +64,30 @@ Set `CODERKING_SANDBOX_MODE=microvm` to use the Micro-VM sandbox:
 |-----------------------------------------------|------|
 | `mock` (default) | Docker sealed mounts — host `/etc/passwd` is not visible |
 | `e2b` | Hosted Micro-VM via E2B (`CODERKING_E2B_API_KEY`) |
-| `firecracker` | Phase 4b stub (raises clear `NotImplementedError`) |
+| `firecracker` | Self-hosted Firecracker (Linux + KVM + kernel/rootfs + SSH) |
 
 LLM credentials stay on the host; Micro-VM sessions only see workspace mounts
 and scrubbed/marker env vars. The `e2b` provider **uploads** the local workspace
 into the remote VM at create time (secret paths / `SKIP_DIRS` omitted); sync
 failure aborts the session (fail closed).
+
+### Firecracker (Phase 4b)
+
+Requires:
+
+- Linux host with `/dev/kvm`
+- `firecracker` binary (`CODERKING_FIRECRACKER_BIN`, default `firecracker`)
+- Kernel image: `CODERKING_FIRECRACKER_KERNEL`
+- Rootfs image: `CODERKING_FIRECRACKER_ROOTFS`
+- Guest SSH for exec + workspace sync:
+  `CODERKING_FIRECRACKER_SSH_HOST` / `SSH_PORT` / `SSH_USER` / `SSH_KEY`
+
+The provider boots via the Firecracker Unix-socket HTTP API, waits for SSH,
+uploads the workspace to `/workspace` (secrets / `SKIP_DIRS` skipped), and runs
+commands over SSH with that cwd. Missing deps → `available()` is false and
+`create()` raises `RuntimeError` (fail closed). Networking / tap setup for the
+guest SSH listener is operator-provided (CNI, CNI-less tap, or preconfigured
+rootfs image).
 
 ## Verification
 

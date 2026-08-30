@@ -29,10 +29,11 @@ def test_settings_accept_microvm_mode() -> None:
 
 
 @pytest.mark.asyncio
-async def test_firecracker_provider_raises_phase4b() -> None:
+async def test_firecracker_provider_fails_closed_without_deps() -> None:
     provider = create_microvm_provider("firecracker")
     assert isinstance(provider, FirecrackerProvider)
-    with pytest.raises(NotImplementedError, match="Phase 4b"):
+    assert await provider.available() is False
+    with pytest.raises(RuntimeError, match="Firecracker Micro-VM unavailable"):
         await provider.create(Path("."))
 
 

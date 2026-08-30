@@ -32,6 +32,17 @@ def test_default_policy_denies_env_write() -> None:
     assert decision.action == PolicyAction.DENY
 
 
+def test_default_policy_denies_shell_secret_path_write() -> None:
+    engine = PolicyEngine.load(Path("/nonexistent"))
+    for tool in ("bash", "shell"):
+        tee = engine.evaluate(tool, {"command": "echo SECRET=1 > .env"})
+        assert tee.action == PolicyAction.DENY, tool
+        cat = engine.evaluate(tool, {"command": "cat secrets/prod.pem"})
+        assert cat.action == PolicyAction.DENY, tool
+        echo = engine.evaluate(tool, {"command": "echo hello"})
+        assert echo.action == PolicyAction.ALLOW, tool
+
+
 def test_custom_policy_merged_from_workspace(tmp_path: Path) -> None:
     policy_dir = tmp_path / ".coderking"
     policy_dir.mkdir()

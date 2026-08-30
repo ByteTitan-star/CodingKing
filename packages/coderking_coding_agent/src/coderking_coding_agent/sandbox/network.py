@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import re
+import secrets
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
@@ -108,13 +110,18 @@ class NetworkPolicy:
 
 
 class AllowlistProxy:
-    """Minimal HTTP CONNECT / absolute-URI proxy that enforces host allowlist."""
+    """HTTP CONNECT / absolute-URI proxy with host allowlist + Basic auth token.
+
+    Auth prevents other local processes from reusing a temporary proxy even when
+    the socket must bind beyond loopback for Docker host-gateway reachability.
+    """
 
     def __init__(self, policy: NetworkPolicy, *, host: str = "127.0.0.1") -> None:
         if not policy.needs_proxy:
             raise ValueError("AllowlistProxy requires restricted NetworkPolicy")
         self.policy = policy
         self.host = host
+        self.token = secrets.token_urlsafe(24)
         self.port: int | None = None
         self.denials: list[str] = []
         self._server: asyncio.Server | None = None
@@ -123,7 +130,12 @@ class AllowlistProxy:
     def url(self) -> str:
         if self.port is None:
             raise RuntimeError("proxy is not started")
-        return f"http://{self.host}:{self.port}"
+        return self.proxy_url_for(self.host)
+
+    def proxy_url_for(self, host: str) -> str:
+        if self.port is None:
+            raise RuntimeError("proxy is not started")
+        return f"http://ck:{self.token}@{host}:{self.port}"
 
     async def start(self) -> str:
         self._server = await asyncio.start_server(self._handle, self.host, 0)
@@ -147,6 +159,17 @@ class AllowlistProxy:
     async def __aexit__(self, *exc: object) -> None:
         await self.stop()
 
+    def _authorized(self, headers: dict[str, str]) -> bool:
+        raw = headers.get("proxy-authorization") or headers.get("authorization") or ""
+        if not raw.lower().startswith("basic "):
+            return False
+        try:
+            decoded = base64.b64decode(raw.split(" ", 1)[1].strip()).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return False
+        user, _, password = decoded.partition(":")
+        return user == "ck" and password == self.token and bool(password)
+
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             request_line = await reader.readline()
@@ -158,11 +181,19 @@ class AllowlistProxy:
                 await self._deny(writer, "bad-request", line)
                 return
             method, target = parts[0].upper(), parts[1]
-            # Drain headers
+            headers: dict[str, str] = {}
             while True:
                 header = await reader.readline()
                 if header in (b"\r\n", b"\n", b""):
                     break
+                text = header.decode("latin-1", errors="replace").strip()
+                if ":" in text:
+                    key, value = text.split(":", 1)
+                    headers[key.strip().lower()] = value.strip()
+
+            if not self._authorized(headers):
+                await self._auth_required(writer)
+                return
 
             if method == "CONNECT":
                 host = normalize_host(target)
@@ -185,6 +216,17 @@ class AllowlistProxy:
                 await writer.wait_closed()
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _auth_required(self, writer: asyncio.StreamWriter) -> None:
+        body = b"Proxy authentication required\n"
+        writer.write(
+            b"HTTP/1.1 407 Proxy Authentication Required\r\n"
+            b'Proxy-Authenticate: Basic realm="coderking"\r\n'
+            b"Content-Type: text/plain\r\n"
+            b"Connection: close\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body
+        )
+        await writer.drain()
 
     async def _deny(self, writer: asyncio.StreamWriter, host: str, line: str) -> None:
         self.denials.append(host)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -131,10 +132,13 @@ class DockerSandbox(Sandbox):
     async def _proxy_url_for_container(self) -> tuple[str | None, AllowlistProxy | None]:
         if not self.policy.needs_proxy:
             return None, None
-        proxy = AllowlistProxy(self.policy, host="0.0.0.0")
+        # Linux Docker host-gateway cannot reach a loopback-only bind; elsewhere
+        # prefer 127.0.0.1. Auth token in the proxy URL blocks unauthorized reuse.
+        bind_host = "0.0.0.0" if sys.platform.startswith("linux") else "127.0.0.1"
+        proxy = AllowlistProxy(self.policy, host=bind_host)
         await proxy.start()
         assert proxy.port is not None
-        url = f"http://host.docker.internal:{proxy.port}"
+        url = proxy.proxy_url_for("host.docker.internal")
         return url, proxy
 
     async def start_job(self, command: str) -> str:

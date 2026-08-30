@@ -64,10 +64,7 @@ async def test_restricted_blocks_raw_ip_when_hard_network(tmp_path: Path) -> Non
         network_policy=NetworkPolicy(mode="restricted", allow_hosts=("example.com",)),
     )
     # Probe without proxy-aware stack: connect to a public IP directly.
-    probe = (
-        "python -c \"import socket; "
-        "s=socket.create_connection(('1.1.1.1', 443), timeout=3)\""
-    )
+    probe = "python -c \"import socket; s=socket.create_connection(('1.1.1.1', 443), timeout=3)\""
     result = await sandbox.run(probe, timeout_sec=60)
     if not sandbox.policy.docker_network:
         pytest.skip("restricted no-masquerade network unavailable; best-effort fallback")

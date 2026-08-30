@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from coderking_coding_agent.sandbox.microvm import (
     E2B_REMOTE_ROOT,
+    FIRECRACKER_REMOTE_ROOT,
     E2BProvider,
     E2BSession,
-    FIRECRACKER_REMOTE_ROOT,
     FirecrackerConfig,
     FirecrackerProvider,
     FirecrackerSession,

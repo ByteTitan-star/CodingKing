@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coderking"
-version = "1.0.7"
-description = "CoderKing：自研 ReAct + Reflection 的工程化 Coding Agent（CLI + Web）"
+version = "1.0.8"
+description = "CoderKing：自�?ReAct + Reflection 的工程化 Coding Agent（CLI + Web�?
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }

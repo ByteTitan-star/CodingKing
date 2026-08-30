@@ -1,7 +1,7 @@
 <h1 align="center">ðŸ’» CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.7"><img src="https://img.shields.io/badge/CoderKing-v1.0.7-2563eb" alt="CoderKing v1.0.7" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.8"><img src="https://img.shields.io/badge/CoderKing-v1.0.8-2563eb" alt="CoderKing v1.0.8" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
@@ -9,7 +9,7 @@
   <a href="./README_zh.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" /></a>
 </p>
 
-> Describe an engineering task in natural language â€” plan, edit code, run tests in a sandbox, and auto-repair until verification passes. One Agent Runtime powers both CLI and Web.
+> Describe an engineering task in natural language â€?plan, edit code, run tests in a sandbox, and auto-repair until verification passes. One Agent Runtime powers both CLI and Web.
 
 <p align="center">
   <a href="./docs/showcase/demo.html"><strong>Open workspace demo</strong></a>
@@ -19,7 +19,7 @@
 
 ## What is CoderKing?
 
-CoderKing is an autonomous coding agent runtime for software engineering workflows. You describe a task in natural language; the agent plans the work, modifies the repository, executes commands in an isolated sandbox, runs tests, and enters a repair loop when verification fails â€” all through a single runtime shared by CLI and Web UI.
+CoderKing is an autonomous coding agent runtime for software engineering workflows. You describe a task in natural language; the agent plans the work, modifies the repository, executes commands in an isolated sandbox, runs tests, and enters a repair loop when verification fails â€?all through a single runtime shared by CLI and Web UI.
 
 Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a multi-tenant SaaS.
 
@@ -41,13 +41,13 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 
 ![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
 
-A failing unit test triggers the Planner â†’ Coding â†’ Execution â†’ Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
+A failing unit test triggers the Planner â†?Coding â†?Execution â†?Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
 
 ### Unified diff
 
 ![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
 
-Review exactly what changed before accepting or rolling back â€” the same diff the Reviewer role uses to verify the fix.
+Review exactly what changed before accepting or rolling back â€?the same diff the Reviewer role uses to verify the fix.
 
 ## Product interface
 
@@ -62,11 +62,11 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 
 | Feature | Description |
 | --- | --- |
-| Unified runtime | CLI and Web call the same Agent Runtime â€” no duplicate orchestration logic. |
+| Unified runtime | CLI and Web call the same Agent Runtime â€?no duplicate orchestration logic. |
 | ReAct + reflection loop | Custom agent loop without LangChain / LangGraph dependencies. |
 | Role-based tools | Planner, Coding, Execution, Reviewer, and Repair roles with scoped tool access. |
 | Sandbox execution | Docker-first isolation; local process fallback for development only. |
-| Model-agnostic | OpenAI-compatible APIs â€” DeepSeek, GLM, Qwen, Ollama, and similar gateways. |
+| Model-agnostic | OpenAI-compatible APIs â€?DeepSeek, GLM, Qwen, Ollama, and similar gateways. |
 | Human-in-the-loop | Dangerous operations require explicit approval unless `--yes` is set. |
 | Evaluation harness | Scripted tasks for `bug_fix`, `feature_add`, and `refactor`. |
 | Live observability | Web UI shows plan, tool trace, terminal output, diff, and sandbox status. |
@@ -80,14 +80,14 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 ## Architecture
 
 ```text
-User â†’ CLI / Web UI â†’ FastAPI + WebSocket
-                         â†“
+User â†?CLI / Web UI â†?FastAPI + WebSocket
+                         â†?
                    Agent Runtime
-                         â†“
-              Planner â†’ Coding â†’ Execution â†’ Reviewer
-                         â†˜ Repair â†—
-                         â†“
-              Tools â†’ Sandbox â†’ Workspace
+                         â†?
+              Planner â†?Coding â†?Execution â†?Reviewer
+                         â†?Repair â†?
+                         â†?
+              Tools â†?Sandbox â†?Workspace
 ```
 
 `coderking run` invokes the runtime in-process (no HTTP server required). `coderking serve` exposes the same runtime to the Web UI.
@@ -125,7 +125,7 @@ coderking stop <task_id>
 coderking eval --path eval/tasks --report-dir eval/reports
 ```
 
-Configuration priority: CLI flags â†’ environment / `.env` â†’ `.coderking/config.yaml` â†’ defaults. API keys are read from the environment only and must not be committed.
+Configuration priority: CLI flags â†?environment / `.env` â†?`.coderking/config.yaml` â†?defaults. API keys are read from the environment only and must not be committed.
 
 Use `--yes` to auto-approve dangerous operations. Use `--commit` to allow the agent to run `git commit`.
 
@@ -141,7 +141,7 @@ In another terminal:
 cd web && npm install && npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. For production, run `npm run build` â€” FastAPI serves `web/dist` when present.
+Open `http://127.0.0.1:5173`. For production, run `npm run build` â€?FastAPI serves `web/dist` when present.
 
 ## Configuration
 
@@ -188,4 +188,4 @@ docs/              Design docs, showcase assets, and acceptance checklist
 
 ## License
 
-MIT Â© CodeTitan, 2026 â€” see [LICENSE](LICENSE).
+MIT Â© CodeTitan, 2026 â€?see [LICENSE](LICENSE).

@@ -88,8 +88,7 @@ async def ensure_restricted_docker_network(
 
     err = err_b.decode("utf-8", errors="replace").strip()
     log.warning(
-        "could not create restricted docker network %s (%s); "
-        "falling back to proxy best-effort",
+        "could not create restricted docker network %s (%s); falling back to proxy best-effort",
         name,
         err or f"exit {create.returncode}",
     )

@@ -104,8 +104,7 @@ def firecracker_missing_deps(config: FirecrackerConfig) -> list[str]:
     binary = config.binary if Path(config.binary).is_file() else shutil.which(config.binary)
     if not binary:
         missing.append(
-            "firecracker binary not found "
-            "(install firecracker or set CODERKING_FIRECRACKER_BIN)"
+            "firecracker binary not found (install firecracker or set CODERKING_FIRECRACKER_BIN)"
         )
     if not config.kernel.is_file():
         missing.append("CODERKING_FIRECRACKER_KERNEL must point to a kernel image")
@@ -304,11 +303,24 @@ class FirecrackerSession:
             return completed.returncode, completed.stdout or "", completed.stderr or ""
 
         try:
-            code, out, err = await asyncio.wait_for(asyncio.to_thread(_run), timeout=timeout_sec + 5)
+            code, out, err = await asyncio.wait_for(
+                asyncio.to_thread(_run),
+                timeout=timeout_sec + 5,
+            )
         except TimeoutError:
-            return ExecResult(124, "", f"firecracker timeout after {timeout_sec}s", self.backend_name)
+            return ExecResult(
+                124,
+                "",
+                f"firecracker timeout after {timeout_sec}s",
+                self.backend_name,
+            )
         except subprocess.TimeoutExpired:
-            return ExecResult(124, "", f"firecracker timeout after {timeout_sec}s", self.backend_name)
+            return ExecResult(
+                124,
+                "",
+                f"firecracker timeout after {timeout_sec}s",
+                self.backend_name,
+            )
         return ExecResult(code, out, err, self.backend_name)
 
     async def close(self) -> None:

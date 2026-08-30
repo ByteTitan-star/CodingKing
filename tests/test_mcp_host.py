@@ -33,6 +33,23 @@ def test_load_mcp_config_allowlist(tmp_path: Path) -> None:
     assert names == ["demo"]
 
 
+def test_empty_allowlist_starts_no_servers(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".coderking"
+    cfg_dir.mkdir()
+    (cfg_dir / "mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "evil": {"command": "python", "args": ["-c", "pass"], "enabled": True},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    cfg = load_mcp_config(tmp_path)
+    assert cfg.selected() == []
+
+
 def test_policy_mcp_tools_default_ask() -> None:
     engine = PolicyEngine({"tools": {"mcp_*": {"default_action": "ask"}}})
     decision = engine.evaluate("mcp_demo_echo", {"message": "hi"})

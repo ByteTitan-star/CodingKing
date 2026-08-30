@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from coderking.api.app import create_app
+from coderking.config import Settings
 from coderking.controller import TaskController
 from coderking.runtime.state import AgentState
 
@@ -35,3 +37,49 @@ def test_diff_and_rollback_routes(tmp_path: Path) -> None:
     assert (tmp_path / "a.py").read_text(encoding="utf-8") == "old\n"
     stop = client.post(f"/api/tasks/{state.task_id}/interrupt")
     assert stop.status_code == 200
+
+
+def test_api_token_required_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODERKING_API_TOKEN", "secret-token")
+    controller = TaskController(Settings(workspace=tmp_path, openai_api_key="x"))
+    client = TestClient(create_app(controller))
+    denied = client.get("/api/workspace/tree")
+    assert denied.status_code == 401
+    ok = client.get("/api/workspace/tree", headers={"X-CoderKing-Token": "secret-token"})
+    assert ok.status_code == 200
+    assert ok.json()["root"] == str(tmp_path.resolve())
+
+
+def test_repository_must_stay_inside_configured_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CODERKING_API_TOKEN", raising=False)
+    monkeypatch.delenv("CODERKING_HTTP_AUTO_APPROVE", raising=False)
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    allowed.mkdir()
+    outside.mkdir()
+    controller = TaskController(Settings(workspace=allowed, openai_api_key="x"))
+    client = TestClient(create_app(controller))
+    response = client.post(
+        "/api/tasks",
+        json={"prompt": "hi", "repository": str(outside)},
+    )
+    assert response.status_code == 403
+
+
+def test_http_auto_approve_requires_env_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CODERKING_API_TOKEN", raising=False)
+    monkeypatch.delenv("CODERKING_HTTP_AUTO_APPROVE", raising=False)
+    controller = TaskController(Settings(workspace=tmp_path, openai_api_key="x"))
+    client = TestClient(create_app(controller))
+    response = client.post(
+        "/api/tasks",
+        json={"prompt": "hi", "auto_approve": True},
+    )
+    assert response.status_code == 403
+    assert "CODERKING_HTTP_AUTO_APPROVE" in response.json()["detail"]

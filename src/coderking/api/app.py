@@ -1,19 +1,74 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from coderking import __version__
 from coderking.controller import CONTROLLER, TaskController
-from coderking.workspace import iter_files
+from coderking.workspace import ensure_inside, iter_files
 from coderking_coding_agent.context.project_docs import ProjectInstructionsLoader
 from coderking_coding_agent.context.skills import SkillRegistry
 from coderking_transport.http.sse import stream_task_events
+
+_LOCAL_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
+_PUBLIC_API_PATHS = frozenset({"/api/health"})
+
+
+def api_token() -> str:
+    return (os.environ.get("CODERKING_API_TOKEN") or "").strip()
+
+
+def http_auto_approve_allowed() -> bool:
+    return os.environ.get("CODERKING_HTTP_AUTO_APPROVE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _client_host(request: Request) -> str:
+    return (request.client.host if request.client else "") or ""
+
+
+def _provided_token(request: Request) -> str:
+    header = (request.headers.get("x-coderking-token") or "").strip()
+    auth = request.headers.get("authorization") or ""
+    bearer = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    query = (request.query_params.get("token") or "").strip()
+    return header or bearer or query
+
+
+def _authorize_request(request: Request) -> JSONResponse | None:
+    path = request.url.path
+    if path in _PUBLIC_API_PATHS or not (path.startswith("/api") or path.startswith("/ws")):
+        return None
+    expected = api_token()
+    if expected:
+        if _provided_token(request) != expected:
+            return JSONResponse({"detail": "invalid or missing API token"}, status_code=401)
+        return None
+    if _client_host(request) not in _LOCAL_CLIENTS:
+        return JSONResponse(
+            {"detail": "CODERKING_API_TOKEN required for non-local HTTP access"},
+            status_code=401,
+        )
+    return None
+
+
+def _constrain_workspace(ctrl: TaskController, requested: str | None) -> Path:
+    allowed = ctrl.settings.resolved_workspace()
+    if not requested:
+        return allowed
+    try:
+        return ensure_inside(allowed, Path(requested))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
 
 
 def _web_dist() -> Path:
@@ -56,17 +111,30 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def require_api_auth(request: Request, call_next):  # noqa: ANN001
+        denied = _authorize_request(request)
+        if denied is not None:
+            return denied
+        return await call_next(request)
+
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
     @app.post("/api/tasks")
     async def create_task(body: TaskCreate) -> dict:
-        workspace = Path(body.repository).resolve() if body.repository else None
+        workspace = _constrain_workspace(ctrl, body.repository)
+        auto_approve = bool(body.auto_approve) and http_auto_approve_allowed()
+        if body.auto_approve and not auto_approve:
+            raise HTTPException(
+                403,
+                "auto_approve over HTTP requires CODERKING_HTTP_AUTO_APPROVE=1",
+            )
         task = await ctrl.create_task(
             body.prompt,
             workspace,
-            auto_approve=body.auto_approve,
+            auto_approve=auto_approve,
             test_command=body.test_command,
         )
         return ctrl.public_task(task.state.task_id)
@@ -115,19 +183,19 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             raise HTTPException(404, "task not found") from exc
 
     @app.get("/api/workspace/tree")
-    async def workspace_tree(root: str = ".") -> dict:
-        base = Path(root).resolve()
+    async def workspace_tree(root: str | None = None) -> dict:
+        base = _constrain_workspace(ctrl, root)
         files = [p.relative_to(base).as_posix() for p in iter_files(base, max_files=500)]
         return {"root": str(base), "files": files}
 
     @app.get("/api/workspace/project-instructions")
-    async def workspace_project_instructions(root: str = ".") -> dict:
-        base = Path(root).resolve()
+    async def workspace_project_instructions(root: str | None = None) -> dict:
+        base = _constrain_workspace(ctrl, root)
         return ProjectInstructionsLoader(base).inspect()
 
     @app.get("/api/workspace/skills")
-    async def workspace_skills(root: str = ".") -> dict:
-        base = Path(root).resolve()
+    async def workspace_skills(root: str | None = None) -> dict:
+        base = _constrain_workspace(ctrl, root)
         return SkillRegistry(base, include_cursor=False).inspect()
 
     @app.post("/api/tasks/{task_id}/approve")
@@ -193,6 +261,17 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
     async def task_ws(websocket: WebSocket, task_id: str) -> None:
         """Legacy WebSocket stream (deprecated; use /api/v2/tasks/{id}/events SSE)."""
         import asyncio
+
+        expected = api_token()
+        provided = (websocket.query_params.get("token") or "").strip()
+        client = (websocket.client.host if websocket.client else "") or ""
+        if expected:
+            if provided != expected:
+                await websocket.close(code=1008)
+                return
+        elif client not in _LOCAL_CLIENTS:
+            await websocket.close(code=1008)
+            return
 
         await websocket.accept()
         try:

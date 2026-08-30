@@ -23,9 +23,14 @@ class McpConfig:
     allowlist: tuple[str, ...] = ()
 
     def selected(self) -> list[McpServerConfig]:
+        """Return enabled servers that appear on the allowlist.
+
+        An empty allowlist is fail-closed: nothing is started. Untrusted
+        workspaces must opt in explicitly via ``allowlist``.
+        """
         enabled = [s for s in self.servers if s.enabled]
         if not self.allowlist:
-            return enabled
+            return []
         allowed = set(self.allowlist)
         return [s for s in enabled if s.name in allowed]
 

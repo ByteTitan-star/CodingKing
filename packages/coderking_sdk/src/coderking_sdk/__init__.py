@@ -1,4 +1,4 @@
-"""CoderKing embed SDK â€?in-process AgentSession (no HTTP/RPC server)."""
+"""CoderKing embed SDK â€” in-process AgentSession (no HTTP/RPC server)."""
 
 from __future__ import annotations
 

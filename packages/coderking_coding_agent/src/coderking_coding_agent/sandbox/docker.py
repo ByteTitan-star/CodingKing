@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,8 @@ from coderking_coding_agent.sandbox.credentials import is_secret_env_name
 from coderking_coding_agent.sandbox.job_manager import JobSnapshot
 from coderking_coding_agent.sandbox.local import _communicate, _kill
 from coderking_coding_agent.sandbox.network import AllowlistProxy, NetworkPolicy
+
+log = logging.getLogger(__name__)
 
 
 async def docker_available() -> bool:
@@ -67,6 +70,7 @@ class DockerSandbox(Sandbox):
         self.last_container: str | None = None
         self.last_denials: list[str] = []
         self._job_containers: dict[str, str] = {}
+        self.policy.warn_if_best_effort()
 
     def build_args(
         self,

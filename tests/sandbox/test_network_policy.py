@@ -40,15 +40,33 @@ def test_network_policy_docker_flags() -> None:
     none = NetworkPolicy(mode="none")
     assert none.docker_network_args() == ["--network", "none"]
     assert none.proxy_env() == {}
+    assert none.limitation_note() is None
 
     full = NetworkPolicy(mode="full")
     assert full.docker_network_args() == []
     assert full.proxy_env() == {}
 
     restricted = NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",))
-    assert restricted.docker_network_args() == []
-    # proxy URL filled by sandbox when proxy is running
+    # Best-effort: default bridge (no --network none) + broken DNS for non-proxy lookups.
+    assert "--network" not in restricted.docker_network_args()
+    assert restricted.docker_network_args() == ["--dns", "127.0.0.1"]
     assert restricted.needs_proxy is True
+    assert restricted.is_proxy_best_effort is True
+    note = restricted.limitation_note()
+    assert note is not None
+    assert "best-effort" in note
+    assert "IP" in note
+
+
+def test_restricted_proxy_env_excludes_host_gateway() -> None:
+    policy = NetworkPolicy(
+        mode="restricted",
+        allow_hosts=("pypi.org",),
+        proxy_url="http://ck:tok@host.docker.internal:9",
+    )
+    env = policy.proxy_env()
+    assert "host.docker.internal" in env["NO_PROXY"]
+    assert env["HTTPS_PROXY"].startswith("http://ck:")
 
 
 def test_resolve_network_mode_from_legacy_bool() -> None:

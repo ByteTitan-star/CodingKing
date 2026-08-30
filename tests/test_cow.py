@@ -54,6 +54,20 @@ def test_cow_promote_copies_changes_back(tmp_path: Path) -> None:
     cow.close()
 
 
+def test_cow_promote_skips_secret_paths(tmp_path: Path) -> None:
+    (tmp_path / "ok.py").write_text("ok\n", encoding="utf-8")
+    cow = CowWorkspace(tmp_path, session_id="sec")
+    work = cow.materialize()
+    (work / "ok.py").write_text("changed\n", encoding="utf-8")
+    (work / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    (work / "leak.pem").write_text("BEGIN\n", encoding="utf-8")
+    cow.promote()
+    assert (tmp_path / "ok.py").read_text(encoding="utf-8") == "changed\n"
+    assert not (tmp_path / ".env").exists()
+    assert not (tmp_path / "leak.pem").exists()
+    cow.close()
+
+
 def test_concurrent_cow_workspaces_are_isolated(tmp_path: Path) -> None:
     (tmp_path / "shared.py").write_text("base\n", encoding="utf-8")
     a = CowWorkspace(tmp_path, session_id="a")

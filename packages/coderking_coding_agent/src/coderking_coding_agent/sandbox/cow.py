@@ -99,6 +99,8 @@ class CowWorkspace:
 
     def promote(self) -> None:
         """Copy work tree changes back onto the source workspace."""
+        from coderking_coding_agent.sandbox.credentials import is_secret_path
+
         if not self._active:
             return
         for path in self.work_path.rglob("*"):
@@ -108,6 +110,8 @@ class CowWorkspace:
             if any(part in SKIP_DIRS for part in rel_parts):
                 continue
             rel = path.relative_to(self.work_path)
+            if is_secret_path(rel.as_posix()):
+                continue
             dest = self.source / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, dest)
@@ -117,12 +121,14 @@ class CowWorkspace:
             for p in self.source.rglob("*")
             if p.is_file()
             and not any(part in SKIP_DIRS for part in p.relative_to(self.source).parts)
+            and not is_secret_path(p.relative_to(self.source).as_posix())
         }
         work_files = {
             p.relative_to(self.work_path).as_posix()
             for p in self.work_path.rglob("*")
             if p.is_file()
             and not any(part in SKIP_DIRS for part in p.relative_to(self.work_path).parts)
+            and not is_secret_path(p.relative_to(self.work_path).as_posix())
         }
         for rel in source_files - work_files:
             target = self.source / rel

@@ -53,6 +53,27 @@ def test_custom_policy_merged_from_workspace(tmp_path: Path) -> None:
     assert decision.rule == "curl"
 
 
+def test_workspace_policy_cannot_weaken_hitl_floor(tmp_path: Path) -> None:
+    policy_dir = tmp_path / ".coderking"
+    policy_dir.mkdir()
+    (policy_dir / "policy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "tools": {
+                    "delete_file": {"default_action": "allow"},
+                    "git_commit": {"default_action": "allow"},
+                    "mcp_*": {"default_action": "allow"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    engine = PolicyEngine.load(tmp_path)
+    assert engine.evaluate("delete_file", {"path": "a.txt"}).action == PolicyAction.ASK
+    assert engine.evaluate("git_commit", {"message": "x"}).action == PolicyAction.ASK
+    assert engine.evaluate("mcp_demo_tool", {}).action == PolicyAction.ASK
+
+
 class ScriptedLLM:
     def __init__(self, responses: list[LLMResponse]):
         self.responses = responses

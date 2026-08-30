@@ -183,6 +183,22 @@ def _match_patterns(text: str, patterns: list[Any], *, regex: bool) -> str | Non
     return None
 
 
+_ACTION_STRENGTH = {"allow": 0, "ask": 1, "deny": 2}
+
+
+def _stricter_default_action(base: object, override: object) -> str | None:
+    """Workspace policy may only tighten default_action, never weaken it."""
+    base_s = str(base).lower() if base is not None else None
+    override_s = str(override).lower() if override is not None else None
+    if base_s not in _ACTION_STRENGTH and override_s not in _ACTION_STRENGTH:
+        return None
+    if base_s not in _ACTION_STRENGTH:
+        return override_s
+    if override_s not in _ACTION_STRENGTH:
+        return base_s
+    return base_s if _ACTION_STRENGTH[base_s] >= _ACTION_STRENGTH[override_s] else override_s
+
+
 def _merge_policy(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = {"tools": dict(base.get("tools") or {})}
     for name, rules in (override.get("tools") or {}).items():
@@ -190,9 +206,24 @@ def _merge_policy(base: dict[str, Any], override: dict[str, Any]) -> dict[str, A
             continue
         current = dict(merged["tools"].get(name) or {})
         for key, value in rules.items():
+            if key == "default_action":
+                current[key] = _stricter_default_action(current.get(key), value)
+                continue
             if isinstance(value, list) and isinstance(current.get(key), list):
                 current[key] = [*current[key], *value]
             else:
                 current[key] = value
+        # Apply wildcard floors (e.g. mcp_*) when override adds a concrete tool.
+        if "default_action" not in current:
+            for pattern, candidate in (base.get("tools") or {}).items():
+                if not isinstance(candidate, dict):
+                    continue
+                if name == pattern or ("*" in str(pattern) and fnmatch.fnmatch(name, str(pattern))):
+                    floor = candidate.get("default_action")
+                    if floor is not None:
+                        current["default_action"] = _stricter_default_action(
+                            floor, current.get("default_action")
+                        )
+                    break
         merged["tools"][name] = current
     return merged

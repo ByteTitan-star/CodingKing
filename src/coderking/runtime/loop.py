@@ -112,6 +112,8 @@ class AgentRuntime:
                 on_event=on_event,
                 queues=queues,
                 state=state,
+                approve=approve,
+                auto_approve=auto_approve,
             )
         return await self._backend.run(
             prompt,

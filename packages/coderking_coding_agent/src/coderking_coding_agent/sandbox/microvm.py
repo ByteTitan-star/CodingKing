@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import time
 from dataclasses import dataclass
@@ -11,13 +12,19 @@ from typing import Literal, Protocol
 from uuid import uuid4
 
 from coderking_coding_agent.sandbox.base import ExecResult, Sandbox
-from coderking_coding_agent.sandbox.credentials import is_secret_env_name
+from coderking_coding_agent.sandbox.credentials import is_secret_env_name, is_secret_path
 from coderking_coding_agent.sandbox.docker import docker_available
 from coderking_coding_agent.sandbox.local import _communicate, _kill
+from coderking_coding_agent.workspace import SKIP_DIRS
 
 MicroVmProviderName = Literal["mock", "e2b", "firecracker"]
 
 FAKE_PASSWD = "root:x:0:0:CoderKing-MicroVM:/root:/bin/sh\n"
+E2B_REMOTE_ROOT = "/home/user/workspace"
+# Refuse single-file uploads larger than this to avoid silent hangs / cost spikes.
+E2B_MAX_SYNC_FILE_BYTES = 5 * 1024 * 1024
+
+log = logging.getLogger(__name__)
 
 
 class MicroVmSession(Protocol):
@@ -153,28 +160,118 @@ class FirecrackerProvider:
         )
 
 
+def iter_workspace_sync_files(workspace: Path) -> list[tuple[Path, str]]:
+    """Local files to upload into a remote Micro-VM (skip secrets / SKIP_DIRS)."""
+    root = workspace.resolve()
+    out: list[tuple[Path, str]] = []
+    if not root.is_dir():
+        raise RuntimeError(f"E2B workspace sync requires a directory: {root}")
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if any(part in SKIP_DIRS for part in rel.parts):
+            continue
+        rel_posix = rel.as_posix()
+        if is_secret_path(rel_posix):
+            continue
+        out.append((path, rel_posix))
+    return out
+
+
+def _write_remote_file(sandbox: object, remote_path: str, data: bytes) -> None:
+    files = getattr(sandbox, "files", None)
+    if files is not None and hasattr(files, "write"):
+        files.write(remote_path, data)
+        return
+    fs = getattr(sandbox, "filesystem", None)
+    if fs is not None and hasattr(fs, "write"):
+        fs.write(remote_path, data)
+        return
+    raise RuntimeError("E2B sandbox has no files.write / filesystem.write API")
+
+
+def sync_workspace_to_e2b(
+    sandbox: object,
+    workspace: Path,
+    *,
+    remote_root: str = E2B_REMOTE_ROOT,
+    max_file_bytes: int = E2B_MAX_SYNC_FILE_BYTES,
+) -> int:
+    """Upload workspace into the E2B sandbox. Fail closed on any I/O or SDK error.
+
+    Returns the number of files written.
+    """
+    uploaded = 0
+    for local, rel in iter_workspace_sync_files(workspace):
+        remote = f"{remote_root.rstrip('/')}/{rel}"
+        try:
+            data = local.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(f"E2B workspace sync failed reading {rel}: {exc}") from exc
+        if len(data) > max_file_bytes:
+            raise RuntimeError(
+                f"E2B workspace sync refused oversized file {rel} ({len(data)} bytes; "
+                f"limit {max_file_bytes})"
+            )
+        try:
+            _write_remote_file(sandbox, remote, data)
+        except Exception as exc:
+            raise RuntimeError(f"E2B workspace sync failed uploading {rel}: {exc}") from exc
+        uploaded += 1
+    log.info("E2B workspace sync uploaded %s files to %s", uploaded, remote_root)
+    return uploaded
+
+
+def _kill_e2b_sandbox(sandbox: object) -> None:
+    for meth in ("kill", "close"):
+        fn = getattr(sandbox, meth, None)
+        if callable(fn):
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+
+
 class E2BSession:
     """Thin E2B code-interpreter session wrapper."""
 
-    def __init__(self, sandbox: object, workspace: Path) -> None:
+    def __init__(
+        self,
+        sandbox: object,
+        workspace: Path,
+        *,
+        remote_root: str = E2B_REMOTE_ROOT,
+    ) -> None:
         self._sandbox = sandbox
         self.workspace = workspace
+        self.remote_root = remote_root
         self.backend_name = "microvm-e2b"
 
     async def exec(self, command: str, *, timeout_sec: int) -> ExecResult:
         # E2B SDK is sync in older versions; run in thread.
+        remote_root = self.remote_root
+
         def _run() -> tuple[int, str, str]:
             sb = self._sandbox
             # Prefer commands.run if present (e2b_code_interpreter / e2b SDK).
             if hasattr(sb, "commands") and hasattr(sb.commands, "run"):
-                result = sb.commands.run(command, timeout=timeout_sec)
+                run_fn = sb.commands.run
+                try:
+                    result = run_fn(command, timeout=timeout_sec, cwd=remote_root)
+                except TypeError:
+                    # Older SDKs may not accept cwd — fall back to shell cd.
+                    wrapped = f"cd {remote_root!s} && {command}"
+                    result = run_fn(wrapped, timeout=timeout_sec)
                 exit_code = int(getattr(result, "exit_code", 0) or 0)
                 stdout = str(getattr(result, "stdout", "") or "")
                 stderr = str(getattr(result, "stderr", "") or "")
                 return exit_code, stdout, stderr
             if hasattr(sb, "run_code"):
                 code = (
-                    "import subprocess, sys\n"
+                    "import os, subprocess, sys\n"
+                    f"os.chdir({remote_root!r})\n"
                     f"r = subprocess.run({command!r}, shell=True, "
                     "capture_output=True, text=True)\n"
                     "sys.stdout.write(r.stdout)\n"
@@ -194,16 +291,7 @@ class E2BSession:
         return ExecResult(exit_code, stdout, stderr, self.backend_name)
 
     async def close(self) -> None:
-        sb = self._sandbox
-
-        def _kill() -> None:
-            for meth in ("kill", "close"):
-                fn = getattr(sb, meth, None)
-                if callable(fn):
-                    fn()
-                    return
-
-        await asyncio.to_thread(_kill)
+        await asyncio.to_thread(_kill_e2b_sandbox, self._sandbox)
 
 
 class E2BProvider:
@@ -233,6 +321,8 @@ class E2BProvider:
         if not await self.available():
             raise RuntimeError("E2B SDK not installed; pip install e2b or e2b-code-interpreter")
 
+        root = workspace.resolve()
+
         def _create() -> object:
             try:
                 from e2b_code_interpreter import Sandbox as E2BSandbox
@@ -244,7 +334,12 @@ class E2BProvider:
             return E2BSandbox.create(**kwargs)
 
         sb = await asyncio.to_thread(_create)
-        return E2BSession(sb, workspace.resolve())
+        try:
+            await asyncio.to_thread(sync_workspace_to_e2b, sb, root)
+        except Exception:
+            await asyncio.to_thread(_kill_e2b_sandbox, sb)
+            raise
+        return E2BSession(sb, root, remote_root=E2B_REMOTE_ROOT)
 
 
 class MicroVmSandbox(Sandbox):

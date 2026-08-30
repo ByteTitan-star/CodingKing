@@ -71,7 +71,9 @@ Set `CODERKING_SANDBOX_MODE=microvm` to use the Micro-VM sandbox:
 | `firecracker` | Phase 4b stub (raises clear `NotImplementedError`) |
 
 LLM credentials stay on the host; Micro-VM sessions only see workspace mounts
-and scrubbed/marker env vars.
+and scrubbed/marker env vars. The `e2b` provider **uploads** the local workspace
+into the remote VM at create time (secret paths / `SKIP_DIRS` omitted); sync
+failure aborts the session (fail closed).
 
 ## Verification
 

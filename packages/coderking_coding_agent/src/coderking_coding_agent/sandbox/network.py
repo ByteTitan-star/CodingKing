@@ -25,8 +25,75 @@ DEFAULT_ALLOW_HOSTS: tuple[str, ...] = (
     "objects.githubusercontent.com",
 )
 
+# Shared bridge with IP masquerade disabled — blocks direct public egress while
+# still allowing host-gateway reachability for the allowlist proxy.
+RESTRICTED_DOCKER_NETWORK = "coderking-restricted"
+
 _HOST_PORT_RE = re.compile(r"^\[?(?P<host>[^\]:]+)\]?(?::(?P<port>\d+))?$")
 log = logging.getLogger(__name__)
+
+
+def restricted_network_create_args(name: str = RESTRICTED_DOCKER_NETWORK) -> list[str]:
+    """Docker CLI args to create the no-masquerade restricted bridge."""
+    return [
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--opt",
+        "com.docker.network.bridge.enable_ip_masquerade=false",
+        name,
+    ]
+
+
+async def ensure_restricted_docker_network(
+    name: str = RESTRICTED_DOCKER_NETWORK,
+) -> str | None:
+    """Create or reuse the restricted bridge. Returns None if Docker cannot do so."""
+    inspect = await asyncio.create_subprocess_exec(
+        "docker",
+        "network",
+        "inspect",
+        name,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await inspect.wait()
+    if inspect.returncode == 0:
+        return name
+
+    create = await asyncio.create_subprocess_exec(
+        *restricted_network_create_args(name),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _out, err_b = await create.communicate()
+    if create.returncode == 0:
+        log.info("created restricted docker network %s (IP masquerade disabled)", name)
+        return name
+
+    # Race: another process created it between inspect and create.
+    inspect2 = await asyncio.create_subprocess_exec(
+        "docker",
+        "network",
+        "inspect",
+        name,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await inspect2.wait()
+    if inspect2.returncode == 0:
+        return name
+
+    err = err_b.decode("utf-8", errors="replace").strip()
+    log.warning(
+        "could not create restricted docker network %s (%s); "
+        "falling back to proxy best-effort",
+        name,
+        err or f"exit {create.returncode}",
+    )
+    return None
 
 
 def normalize_host(host: str) -> str:
@@ -74,6 +141,8 @@ class NetworkPolicy:
     mode: NetworkMode = "none"
     allow_hosts: tuple[str, ...] = field(default_factory=tuple)
     proxy_url: str | None = None
+    # When set, containers join this no-masquerade bridge (hard egress isolation).
+    docker_network: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode == "restricted" and not self.allow_hosts:
@@ -88,13 +157,19 @@ class NetworkPolicy:
 
     @property
     def is_proxy_best_effort(self) -> bool:
-        """True when egress is allowlist-proxy only (not container-boundary isolation)."""
-        return self.mode == "restricted"
+        """True when restricted lacks a no-masquerade Docker bridge (fallback)."""
+        return self.mode == "restricted" and not self.docker_network
 
     def limitation_note(self) -> str | None:
         """Human-readable caveat for operators / sandbox start notes."""
-        if not self.is_proxy_best_effort:
+        if self.mode != "restricted":
             return None
+        if self.docker_network:
+            return (
+                "restricted network uses a no-IP-masquerade Docker bridge + allowlist "
+                "proxy; direct public egress (including raw IP literals) is blocked at "
+                f"the container boundary (network={self.docker_network})"
+            )
         return (
             "restricted network is proxy best-effort: HTTP(S)_PROXY + allowlist; "
             "processes that ignore the proxy or use raw IP literals can still egress "
@@ -104,16 +179,19 @@ class NetworkPolicy:
     def docker_network_args(self) -> list[str]:
         """Docker CLI network flags for this policy.
 
-        ``restricted`` keeps the default bridge (so the allowlist proxy on the host
-        is reachable) and sets ``--dns 127.0.0.1`` so hostname lookups that skip the
-        proxy fail. This is **not** true container-boundary egress isolation —
-        see ``limitation_note()``.
+        ``restricted`` preferably joins ``docker_network`` (no IP masquerade) so
+        raw public egress fails, while the host allowlist proxy remains reachable
+        via ``host.docker.internal``. Without ``docker_network``, only DNS
+        hardening applies (best-effort fallback).
         """
         if self.mode == "none":
             return ["--network", "none"]
         if self.mode == "restricted":
-            # Best-effort: break non-proxy hostname resolution. IP literals still bypass.
-            return ["--dns", "127.0.0.1"]
+            args: list[str] = []
+            if self.docker_network:
+                args.extend(["--network", self.docker_network])
+            args.extend(["--dns", "127.0.0.1"])
+            return args
         return []
 
     def proxy_env(self) -> dict[str, str]:
@@ -131,12 +209,26 @@ class NetworkPolicy:
         }
 
     def warn_if_best_effort(self) -> None:
-        note = self.limitation_note()
-        if note:
-            log.warning("sandbox network: %s", note)
+        if self.is_proxy_best_effort:
+            note = self.limitation_note()
+            if note:
+                log.warning("sandbox network: %s", note)
 
     def with_proxy_url(self, url: str) -> NetworkPolicy:
-        return NetworkPolicy(mode=self.mode, allow_hosts=self.allow_hosts, proxy_url=url)
+        return NetworkPolicy(
+            mode=self.mode,
+            allow_hosts=self.allow_hosts,
+            proxy_url=url,
+            docker_network=self.docker_network,
+        )
+
+    def with_docker_network(self, name: str | None) -> NetworkPolicy:
+        return NetworkPolicy(
+            mode=self.mode,
+            allow_hosts=self.allow_hosts,
+            proxy_url=self.proxy_url,
+            docker_network=name,
+        )
 
 
 class AllowlistProxy:

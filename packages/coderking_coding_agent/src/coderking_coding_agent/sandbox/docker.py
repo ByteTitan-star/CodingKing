@@ -13,7 +13,11 @@ from coderking_coding_agent.sandbox.base import ExecResult, Sandbox
 from coderking_coding_agent.sandbox.credentials import is_secret_env_name
 from coderking_coding_agent.sandbox.job_manager import JobSnapshot
 from coderking_coding_agent.sandbox.local import _communicate, _kill
-from coderking_coding_agent.sandbox.network import AllowlistProxy, NetworkPolicy
+from coderking_coding_agent.sandbox.network import (
+    AllowlistProxy,
+    NetworkPolicy,
+    ensure_restricted_docker_network,
+)
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +74,19 @@ class DockerSandbox(Sandbox):
         self.last_container: str | None = None
         self.last_denials: list[str] = []
         self._job_containers: dict[str, str] = {}
-        self.policy.warn_if_best_effort()
+
+    async def _policy_for_run(self) -> NetworkPolicy:
+        """Attach no-masquerade bridge for restricted mode when Docker allows it."""
+        policy = self.policy
+        if not policy.needs_proxy or policy.docker_network:
+            return policy
+        name = await ensure_restricted_docker_network()
+        if name:
+            hardened = policy.with_docker_network(name)
+            log.info("sandbox network: %s", hardened.limitation_note())
+            return hardened
+        policy.warn_if_best_effort()
+        return policy
 
     def build_args(
         self,
@@ -78,9 +94,11 @@ class DockerSandbox(Sandbox):
         container: str,
         *,
         proxy_url: str | None = None,
+        policy: NetworkPolicy | None = None,
     ) -> list[str]:
-        policy = self.policy.with_proxy_url(proxy_url) if proxy_url else self.policy
-        extra_env = policy.proxy_env()
+        active = policy or self.policy
+        active = active.with_proxy_url(proxy_url) if proxy_url else active
+        extra_env = active.proxy_env()
         args = [
             "docker",
             "run",
@@ -95,9 +113,9 @@ class DockerSandbox(Sandbox):
             "-w",
             "/workspace",
             *_docker_env_args(extra_env),
-            *policy.docker_network_args(),
+            *active.docker_network_args(),
         ]
-        if policy.needs_proxy:
+        if active.needs_proxy:
             args.extend(["--add-host", "host.docker.internal:host-gateway"])
         args.extend([self.image, "sh", "-lc", command])
         return args
@@ -108,9 +126,11 @@ class DockerSandbox(Sandbox):
         container: str,
         *,
         proxy_url: str | None = None,
+        policy: NetworkPolicy | None = None,
     ) -> list[str]:
-        policy = self.policy.with_proxy_url(proxy_url) if proxy_url else self.policy
-        extra_env = policy.proxy_env()
+        active = policy or self.policy
+        active = active.with_proxy_url(proxy_url) if proxy_url else active
+        extra_env = active.proxy_env()
         args = [
             "docker",
             "run",
@@ -126,9 +146,9 @@ class DockerSandbox(Sandbox):
             "-w",
             "/workspace",
             *_docker_env_args(extra_env),
-            *policy.docker_network_args(),
+            *active.docker_network_args(),
         ]
-        if policy.needs_proxy:
+        if active.needs_proxy:
             args.extend(["--add-host", "host.docker.internal:host-gateway"])
         args.extend([self.image, "sh", "-lc", command])
         return args
@@ -219,9 +239,12 @@ class DockerSandbox(Sandbox):
             self.cancel.raise_if_cancelled()
         container = f"coderking-{uuid4().hex[:12]}"
         self.last_container = container
+        policy = await self._policy_for_run()
+        # Keep hardened network on the instance so callers can inspect last_args.
+        self.policy = policy
         proxy_url, proxy = await self._proxy_url_for_container()
         try:
-            args = self.build_args(command, container, proxy_url=proxy_url)
+            args = self.build_args(command, container, proxy_url=proxy_url, policy=policy)
             self.last_args = args
             proc = await asyncio.create_subprocess_exec(
                 *args,

@@ -1,4 +1,4 @@
-"""Micro-VM sandbox: pluggable providers (mock / E2B / Firecracker stub)."""
+"""Micro-VM sandbox: pluggable providers (mock / E2B / Firecracker)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,15 @@ from uuid import uuid4
 from coderking_coding_agent.sandbox.base import ExecResult, Sandbox
 from coderking_coding_agent.sandbox.credentials import is_secret_env_name, is_secret_path
 from coderking_coding_agent.sandbox.docker import docker_available
+from coderking_coding_agent.sandbox.firecracker import (
+    FIRECRACKER_REMOTE_ROOT,
+    FirecrackerConfig,
+    FirecrackerProvider,
+    FirecrackerSession,
+    configure_and_start_vm,
+    firecracker_missing_deps,
+    sync_workspace_over_ssh,
+)
 from coderking_coding_agent.sandbox.local import _communicate, _kill
 from coderking_coding_agent.workspace import SKIP_DIRS
 
@@ -25,6 +34,28 @@ E2B_REMOTE_ROOT = "/home/user/workspace"
 E2B_MAX_SYNC_FILE_BYTES = 5 * 1024 * 1024
 
 log = logging.getLogger(__name__)
+
+__all__ = [
+    "E2B_REMOTE_ROOT",
+    "E2BProvider",
+    "E2BSession",
+    "FIRECRACKER_REMOTE_ROOT",
+    "FAKE_PASSWD",
+    "FirecrackerConfig",
+    "FirecrackerProvider",
+    "FirecrackerSession",
+    "MicroVmProvider",
+    "MicroVmProviderName",
+    "MicroVmSandbox",
+    "MicroVmSession",
+    "MockMicroVmProvider",
+    "configure_and_start_vm",
+    "create_microvm_provider",
+    "firecracker_missing_deps",
+    "iter_workspace_sync_files",
+    "sync_workspace_over_ssh",
+    "sync_workspace_to_e2b",
+]
 
 
 class MicroVmSession(Protocol):
@@ -142,21 +173,6 @@ class MockMicroVmProvider:
             image=self.image,
             memory_mb=self.memory_mb,
             cpus=self.cpus,
-        )
-
-
-class FirecrackerProvider:
-    """Self-hosted Firecracker — Phase 4b placeholder."""
-
-    name = "firecracker"
-
-    async def available(self) -> bool:
-        return False
-
-    async def create(self, workspace: Path) -> MicroVmSession:
-        raise NotImplementedError(
-            "Firecracker self-hosted Micro-VM is Phase 4b; "
-            "use sandbox_microvm_provider=mock (Docker sealed) or e2b"
         )
 
 
@@ -389,7 +405,7 @@ def create_microvm_provider(
     if name == "e2b":
         return E2BProvider(api_key=api_key, template=template)
     if name == "firecracker":
-        return FirecrackerProvider()
+        return FirecrackerProvider(memory_mb=memory_mb, vcpus=max(1, int(cpus)))
     raise ValueError(f"unknown microvm provider: {name}")
 
 

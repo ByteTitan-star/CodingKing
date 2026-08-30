@@ -46,16 +46,52 @@ def test_network_policy_docker_flags() -> None:
     assert full.docker_network_args() == []
     assert full.proxy_env() == {}
 
-    restricted = NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",))
-    # Best-effort: default bridge (no --network none) + broken DNS for non-proxy lookups.
-    assert "--network" not in restricted.docker_network_args()
-    assert restricted.docker_network_args() == ["--dns", "127.0.0.1"]
-    assert restricted.needs_proxy is True
-    assert restricted.is_proxy_best_effort is True
-    note = restricted.limitation_note()
-    assert note is not None
-    assert "best-effort" in note
-    assert "IP" in note
+    # Without a dedicated bridge: DNS hardening only (legacy / fallback best-effort).
+    soft = NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",))
+    assert "--network" not in soft.docker_network_args()
+    assert soft.docker_network_args() == ["--dns", "127.0.0.1"]
+    assert soft.needs_proxy is True
+    assert soft.is_proxy_best_effort is True
+    soft_note = soft.limitation_note()
+    assert soft_note is not None
+    assert "best-effort" in soft_note
+
+    # With no-masquerade bridge: container-boundary hard egress.
+    hard = NetworkPolicy(
+        mode="restricted",
+        allow_hosts=("pypi.org",),
+        docker_network="coderking-restricted",
+    )
+    assert hard.docker_network_args() == [
+        "--network",
+        "coderking-restricted",
+        "--dns",
+        "127.0.0.1",
+    ]
+    assert hard.is_proxy_best_effort is False
+    hard_note = hard.limitation_note()
+    assert hard_note is not None
+    assert "masquerade" in hard_note.lower() or "boundary" in hard_note.lower()
+
+
+def test_restricted_network_create_args_disable_masquerade() -> None:
+    from coderking.sandbox.network import restricted_network_create_args
+
+    args = restricted_network_create_args("coderking-restricted")
+    assert args[:3] == ["docker", "network", "create"]
+    assert "com.docker.network.bridge.enable_ip_masquerade=false" in args
+    assert args[-1] == "coderking-restricted"
+
+
+def test_with_proxy_url_preserves_docker_network() -> None:
+    base = NetworkPolicy(
+        mode="restricted",
+        allow_hosts=("pypi.org",),
+        docker_network="coderking-restricted",
+    )
+    updated = base.with_proxy_url("http://ck:tok@host.docker.internal:9")
+    assert updated.docker_network == "coderking-restricted"
+    assert updated.proxy_url is not None
 
 
 def test_restricted_proxy_env_excludes_host_gateway() -> None:
@@ -124,7 +160,30 @@ async def test_allowlist_proxy_denies_and_allows() -> None:
 
 
 @pytest.mark.asyncio
-async def test_docker_proxy_url_includes_auth_and_loopback_bind_off_linux() -> None:
+async def test_docker_sandbox_attaches_restricted_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pathlib import Path
+    from unittest.mock import AsyncMock
+
+    from coderking.sandbox.docker import DockerSandbox
+    from coderking.sandbox.network import NetworkPolicy
+
+    sandbox = DockerSandbox(
+        Path("."),
+        image="python:3.12-slim",
+        memory_mb=256,
+        cpus=0.5,
+        network_policy=NetworkPolicy(mode="restricted", allow_hosts=("pypi.org",)),
+    )
+    monkeypatch.setattr(
+        "coderking_coding_agent.sandbox.docker.ensure_restricted_docker_network",
+        AsyncMock(return_value="coderking-restricted"),
+    )
+    policy = await sandbox._policy_for_run()
+    assert policy.docker_network == "coderking-restricted"
+    assert policy.is_proxy_best_effort is False
+    args = sandbox.build_args("true", "c1", policy=policy)
+    assert args[args.index("--network") + 1] == "coderking-restricted"
+
     import sys
     from pathlib import Path
     from unittest.mock import patch

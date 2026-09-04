@@ -116,21 +116,14 @@ def run(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
     yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
     commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
-    extension: str = typer.Option(
-        "atomic",
-        "--extension",
-        help="Tool profile: atomic (default, Pi-style pure loop) or swe (optional 5-role harness)",
-    ),
     test: str | None = typer.Option(
         None,
         "--test",
-        help="Preferred verification command (soft prompt hint for bash; not a workflow gate)",
+        help="Preferred verification command (soft prompt hint for bash)",
     ),
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
-    settings = load_settings(
-        workspace=_workspace(workspace), allow_commit=commit, extension=extension
-    )
+    settings = load_settings(workspace=_workspace(workspace), allow_commit=commit)
     asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None, test_command=test))
 
 
@@ -142,7 +135,7 @@ def chat(
     test: str | None = typer.Option(
         None,
         "--test",
-        help="Preferred verification command (soft prompt hint for bash; not a workflow gate)",
+        help="Preferred verification command (soft prompt hint for bash)",
     ),
 ) -> None:
     """Interactive session that continues on the same workspace."""

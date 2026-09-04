@@ -9,7 +9,7 @@
   <a href="./README_zh.md"><img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" /></a>
 </p>
 
-> Describe an engineering task in natural language — plan, edit code, run tests in a sandbox, and auto-repair until verification passes. One Agent Runtime powers both CLI and Web.
+> Describe an engineering task in natural language — the coding agent edits code with read/write/edit/bash, verifies with tests in a sandbox, and keeps iterating until checks pass. One Agent Runtime powers both CLI and Web.
 
 <p align="center">
   <a href="./docs/showcase/demo.html"><strong>Open workspace demo</strong></a>
@@ -19,42 +19,40 @@
 
 ## What is CoderKing?
 
-CoderKing is an autonomous coding agent runtime for software engineering workflows. You describe a task in natural language; the agent plans the work, modifies the repository, executes commands in an isolated sandbox, runs tests, and enters a repair loop when verification fails — all through a single runtime shared by CLI and Web UI.
+CoderKing is an autonomous **coding agent** runtime (Pi-aligned). You describe a task in natural language; a single agent loop uses four tools (`read` / `write` / `edit` / `bash`) to change the repository, run checks in an isolated sandbox, and continue until verification passes. CLI and Web share the same runtime — there is no fixed multi-role workflow.
 
 Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a multi-tenant SaaS.
 
-## Agent workflow
+## How the agent works
 
-| Stage | Key action | Stage output |
-| --- | --- | --- |
-| Task input | Describe a bug fix, feature, or refactor in CLI or Web. | A clear engineering brief |
-| Planning | Break the task into reviewable steps. | A structured task plan |
-| Coding | Read, search, and edit files in the workspace. | Patched source code |
-| Execution | Run shell commands and tests inside the sandbox. | Command and test output |
-| Review | Verify results against the plan and diff. | Pass / fail decision |
-| Repair | On test failure, diagnose and patch again. | A corrected implementation |
-| Delivery | Finish with diff summary; optional git commit with approval. | A completed task |
+| Step | What happens |
+| --- | --- |
+| Task | You describe a bug fix, feature, or refactor in CLI or Web. |
+| Loop | The model chooses tools each turn (explore → edit → run checks). |
+| Verify | After edits, it runs tests/lint via `bash` (prompt-guided; optional `--test` hint). |
+| Iterate | On failure, it diagnoses from tool output and edits again. |
+| Deliver | Stops when the task is done and verification passed; review the diff. |
 
 ## Product showcase
 
-### Repair loop in action
+### Agent loop in action
 
 ![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
 
-A failing unit test triggers the pure agent loop (edit → bash/tests → repair). The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
+A failing unit test triggers the pure agent loop (edit → bash/tests → iterate). The workspace shows tool trace, patched files, and pytest output in one view.
 
 ### Unified diff
 
 ![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
 
-Review exactly what changed before accepting or rolling back — the same diff the Reviewer role uses to verify the fix.
+Review exactly what changed before accepting or rolling back.
 
 ## Product interface
 
 | Engineering workspace | Diff & runtime |
 | --- | --- |
 | ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
-| Describe a task, watch the plan and agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
+| Describe a task, watch agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
 
 Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `python scripts/capture_showcase.py` or replace assets after a live demo run.
 
@@ -63,14 +61,14 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 | Feature | Description |
 | --- | --- |
 | Unified runtime | CLI and Web call the same Agent Runtime — no duplicate orchestration logic. |
-| ReAct + reflection loop | Custom Pi-aligned agent loop without LangChain / LangGraph. |
-| Atomic tools (default) | Default `extension=atomic`: Read / Write / Edit / Bash pure loop — no fixed role workflow. |
-| Optional SWE harness | `--extension swe` enables Planner/Coding/Execution/Reviewer/Repair (explicit opt-in). |
+| Pure agent loop | Pi-aligned ReAct-style loop without LangChain / LangGraph and without fixed role stages. |
+| Four atomic tools | `read` / `write` / `edit` / `bash` only — the model decides the order. |
+| Prompt verification | After edits, run checks with bash; optional `--test` soft hint (not a hard gate). |
 | Sandbox execution | Docker-first isolation; local process fallback for development only. |
 | Model-agnostic | OpenAI-compatible APIs — DeepSeek, GLM, Qwen, Ollama, and similar gateways. |
 | Human-in-the-loop | Dangerous operations require explicit approval unless `--yes` is set. |
 | Evaluation harness | Scripted tasks for `bug_fix`, `feature_add`, and `refactor`. |
-| Live observability | Web UI shows plan, tool trace, terminal output, diff, and sandbox status. |
+| Live observability | Web UI shows tool trace, terminal output, diff, and sandbox status. |
 
 <p align="center">
   <a href="./docs/showcase/demo.html"><strong>Explore the workspace demo</strong></a>
@@ -83,13 +81,11 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 ```text
 User → CLI / Web UI → FastAPI + WebSocket
                          ↓
-                   Agent Runtime (atomic by default)
+                   Agent Runtime
                          ↓
               L1 pure loop: Perceive → Decide → Act → Observe
                          ↓
               Tools (read/write/edit/bash) → Sandbox → Workspace
-
-Optional: --extension swe → L2 SWE harness (role switching, not default)
 ```
 
 `coderking run` invokes the runtime in-process (no HTTP server required). `coderking serve` exposes the same runtime to the Web UI.
@@ -155,7 +151,6 @@ Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI se
 | `CODERKING_MODEL` | Model name |
 | `CODERKING_DISABLE_THINKING` | Disable reasoning-model `thinking` field (default `true`) |
 | `CODERKING_SANDBOX_MODE` | `auto`, `docker`, or `local` |
-| `CODERKING_EXTENSION` | `atomic` (default) or `swe` (optional role harness) |
 | `CODERKING_ALLOW_COMMIT` | Allow the `git_commit` tool |
 
 If the upstream API rejects the `thinking` field, the client strips it and retries once automatically.

@@ -10,7 +10,7 @@
 [x] CLI 可以完成 Coding Task          — 命令存在；scripted Runtime 单测通过。未用真实模型跑 `coderking run`。
 [x] Web 可以完成 Coding Task          — 工作台已接真实 API/WS/Diff/Stop/HITL/Rollback。未做浏览器人工点通。
 [x] 真实模型 E2E 成功                 — 2026-08-29 本机：`pytest -q -m live tests/e2e` → 4 passed（约 4m41s）；`coderking eval` 3/3 success，token_usage=24526，model=glm-5.2。
-[x] 测试失败可以自动 Repair           — `tests/test_runtime_loop.py::test_failed_tests_go_repair_then_succeed` 通过。
+[x] 测试失败可持续迭代修复           — 纯 Loop：模型用 bash 观察失败输出后继续 edit（见 `tests/test_atomic_l1_loop.py`）。
 [x] Docker Sandbox 验证成功           — 本机 `pytest tests/test_docker.py`：3 passed（echo / mount+network / timeout 无残留容器）。
 [x] Local fallback 验证成功           — scripted loop 与 eval harness 使用 `sandbox_mode=local`，测试通过。
 [x] Web 可以查看 Diff                 — `GET /api/tasks/{id}/diff` + Web DiffViewer；`tests/test_api.py`、`tests/test_diffing.py` 通过。未浏览器点通。

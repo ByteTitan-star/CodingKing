@@ -2,23 +2,19 @@
 
 ## 1. 项目定位
 
-CoderKing 是一个自主 Coding Agent 平台，目标是实现类似 Codex /
-Devin / OpenHands 的软件工程 Agent 能力。
+CoderKing 是一个自主 **Coding Agent** 平台，目标是实现类似 Codex /
+Devin / OpenHands / Pi 的软件工程 Agent 能力。
 
-用户通过自然语言描述开发任务，Agent 自动完成：
+用户通过自然语言描述开发任务，单一 Agent 循环自动完成：
 
--   需求理解
--   代码仓库分析
--   任务规划
--   文件修改
--   代码执行
--   测试验证
--   错误诊断
--   自动修复
--   结果交付
+-   需求理解与仓库探索
+-   文件读写与精确编辑
+-   沙箱中执行命令与测试
+-   根据工具观察继续迭代
+-   结果交付（diff / 摘要）
 
-项目重点不是简单调用 LLM 生成代码，而是构建具备 Agent Loop、Tool
-Calling、Sandbox 执行和 Evaluation 能力的工程化 Coding Agent。
+项目重点不是固定多角色 workflow，也不是简单调用 LLM 生成一段代码，而是构建具备
+**纯 Agent Loop、四原子 Tool Calling、Sandbox 执行和 Evaluation** 能力的工程化 Coding Agent。
 
 ------------------------------------------------------------------------
 

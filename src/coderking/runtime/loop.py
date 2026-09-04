@@ -1,4 +1,4 @@
-"""Facade AgentRuntime — SWE harness or atomic L1 loop (#23)."""
+"""Facade AgentRuntime — Pi-style pure coding-agent loop only."""
 
 from __future__ import annotations
 
@@ -15,33 +15,30 @@ from coderking.sandbox.cow import CowWorkspace
 from coderking.sandbox.manager import create_sandbox
 from coderking.tools.registry import build_tools
 from coderking_coding_agent.runtime.atomic_l1 import AtomicL1Runtime
-from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
+from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig
 from coderking_coding_agent.runtime.events import AgentEvent
-from coderking_coding_agent.runtime.loop import (
-    AgentRuntime as L2AgentRuntime,
-)
-from coderking_coding_agent.runtime.loop import (
+from coderking_coding_agent.runtime.queues import RunMessageQueues
+from coderking_coding_agent.runtime.state import AgentState
+from coderking_coding_agent.runtime.support import (
     _inject_follow_up,
     _inject_steering,
     _inject_steering_messages,
 )
-from coderking_coding_agent.runtime.queues import RunMessageQueues
-from coderking_coding_agent.runtime.state import AgentState, Role
 from coderking_llm.provider import LLMProvider
 
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 ApprovalFn = Callable[[str, str, dict[str, Any]], Awaitable[bool]]
 
 
-def _bindings_for(settings: Settings) -> HarnessBindings:
+def _bindings_for(settings: Settings) -> RuntimeBindings:
     async def _create_sandbox(workspace: Path, cow: CowWorkspace | None):
         return await create_sandbox(workspace, settings, cow=cow)
 
     async def _connect_mcp(workspace: Path) -> Any:
         return await McpHost.connect(workspace)
 
-    return HarnessBindings(
-        resolve_system_prompt=lambda role: resolve_system_prompt(settings, role),
+    return RuntimeBindings(
+        resolve_system_prompt=lambda: resolve_system_prompt(settings),
         create_sandbox=_create_sandbox,
         build_tools=lambda workspace, sandbox: build_tools(workspace, sandbox, settings),
         cancel_requested=cancel_requested,
@@ -50,8 +47,8 @@ def _bindings_for(settings: Settings) -> HarnessBindings:
     )
 
 
-def _config_for(settings: Settings) -> HarnessConfig:
-    return HarnessConfig(
+def _config_for(settings: Settings) -> RuntimeConfig:
+    return RuntimeConfig(
         max_iterations=settings.max_iterations,
         sandbox_cow=settings.sandbox_cow,
         sandbox_timeout_sec=settings.sandbox_timeout_sec,
@@ -60,7 +57,7 @@ def _config_for(settings: Settings) -> HarnessConfig:
 
 
 class AgentRuntime:
-    """Facade: default Pi-style atomic L1 loop; ``extension=swe`` → optional L2 harness."""
+    """Single coding-agent runtime: L1 loop + read/write/edit/bash."""
 
     def __init__(
         self,
@@ -74,26 +71,13 @@ class AgentRuntime:
         self.llm = llm
         self.memory = memory
         self.cancel = cancel or CancellationToken()
-        config = _config_for(settings)
-        bindings = _bindings_for(settings)
-        # Only explicit SWE keeps the fixed role workflow; everything else is pure loop.
-        if settings.extension == "swe":
-            self._backend: L2AgentRuntime | AtomicL1Runtime = L2AgentRuntime(
-                config,
-                llm,
-                bindings,
-                memory=memory,
-                cancel=self.cancel,
-            )
-        else:
-            self._backend = AtomicL1Runtime(
-                config,
-                llm,
-                bindings,
-                system_prompt=resolve_system_prompt(settings, Role.CODING),
-                cancel=self.cancel,
-            )
-        self._settings = settings
+        self._backend = AtomicL1Runtime(
+            _config_for(settings),
+            llm,
+            _bindings_for(settings),
+            system_prompt=resolve_system_prompt(settings),
+            cancel=self.cancel,
+        )
 
     async def run(
         self,
@@ -107,37 +91,30 @@ class AgentRuntime:
         state: AgentState | None = None,
         queues: RunMessageQueues | None = None,
     ) -> AgentState:
-        if isinstance(self._backend, AtomicL1Runtime):
-            # Prompt-only verification hint — no hard review workflow.
-            self._backend.system_prompt = resolve_system_prompt(
-                self._settings, Role.CODING, test_command=test_command
-            )
-            return await self._backend.run(
-                prompt,
-                workspace,
-                on_event=on_event,
-                queues=queues,
-                state=state,
-                approve=approve,
-                auto_approve=auto_approve,
-            )
+        self._backend.system_prompt = resolve_system_prompt(
+            self.settings, test_command=test_command
+        )
         return await self._backend.run(
             prompt,
             workspace,
             on_event=on_event,
+            queues=queues,
+            state=state,
             approve=approve,
             auto_approve=auto_approve,
-            test_command=test_command,
-            state=state,
-            queues=queues,
         )
 
+
+# Back-compat aliases for renamed config types.
+HarnessBindings = RuntimeBindings
+HarnessConfig = RuntimeConfig
 
 __all__ = [
     "AgentRuntime",
     "HarnessBindings",
     "HarnessConfig",
-    "Role",
+    "RuntimeBindings",
+    "RuntimeConfig",
     "_inject_follow_up",
     "_inject_steering",
     "_inject_steering_messages",

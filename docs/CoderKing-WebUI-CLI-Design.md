@@ -137,30 +137,30 @@ Agent 自动完成：
 
 ## Agent Execution Timeline
 
-展示 Agent Action Trace：
+展示 Agent Action Trace（工具调用轨迹，不是固定角色阶段）：
 
-    Planner:
+    Agent:
 
-    Analyzing repository
-
-
-    Coder:
-
-    Editing auth.py
+    read src/auth.py
 
 
-    Executor:
+    Agent:
 
-    Running pytest
+    edit src/auth.py
 
 
-    Repair:
+    Agent:
 
-    Fixing failed test
+    bash: python -m pytest -q
+
+
+    Agent:
+
+    edit src/auth.py  (iterate after failing tests)
 
 注意：
 
-展示执行轨迹，不展示模型私有思维链。
+展示工具执行轨迹，不展示模型私有思维链。不存在 Planner/Coder/Repair 角色流水线。
 
 ------------------------------------------------------------------------
 

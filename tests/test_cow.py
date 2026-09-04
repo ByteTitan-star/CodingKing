@@ -126,18 +126,8 @@ async def test_runtime_cow_promotes_on_success(tmp_path: Path) -> None:
                     "",
                     [
                         ToolCall(
-                            id="1",
-                            name="submit_plan",
-                            arguments={"steps": ["fix add", "run tests", "review"]},
-                        )
-                    ],
-                ),
-                LLMResponse(
-                    "",
-                    [
-                        ToolCall(
                             id="2",
-                            name="write_file",
+                            name="write",
                             arguments={
                                 "path": "calc.py",
                                 "content": "def add(a, b):\n    return a + b\n",
@@ -145,12 +135,7 @@ async def test_runtime_cow_promotes_on_success(tmp_path: Path) -> None:
                         )
                     ],
                 ),
-                LLMResponse("", [ToolCall(id="3", name="submit_for_execution", arguments={})]),
-                LLMResponse("", [ToolCall(id="4", name="run_tests", arguments={})]),
-                LLMResponse(
-                    "",
-                    [ToolCall(id="5", name="finish_task", arguments={"summary": "fixed add"})],
-                ),
+                LLMResponse("fixed add", []),
             ]
 
         async def complete(self, messages, tools, cancel=None) -> LLMResponse:  # noqa: ANN001, ARG002
@@ -164,7 +149,6 @@ async def test_runtime_cow_promotes_on_success(tmp_path: Path) -> None:
         workspace=tmp_path,
         max_iterations=20,
         sandbox_cow=True,
-        extension="swe",
     )
     events: list = []
 

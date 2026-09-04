@@ -8,13 +8,12 @@ from coderking.config import Settings
 from coderking.llm.provider import LLMResponse
 from coderking.prompts.loader import (
     CORE_TOKEN_BUDGET,
+    append_verification_hint,
     estimate_text_tokens,
     load_core_prompt,
-    load_swe_role_prompt,
     resolve_system_prompt,
 )
 from coderking.runtime.loop import AgentRuntime
-from coderking.runtime.state import Role
 
 
 def test_core_prompt_under_token_budget() -> None:
@@ -26,35 +25,17 @@ def test_core_prompt_under_token_budget() -> None:
     assert estimate_text_tokens(prompt) < CORE_TOKEN_BUDGET
 
 
-def test_swe_role_prompts_are_minimal() -> None:
-    for role in Role:
-        prompt = load_swe_role_prompt(role)
-        assert prompt
-        assert estimate_text_tokens(prompt) < CORE_TOKEN_BUDGET
-
-
-def test_atomic_profile_uses_core_prompt() -> None:
-    prompt = resolve_system_prompt(Settings(extension="atomic"), Role.CODING)
+def test_resolve_system_prompt_is_core() -> None:
+    prompt = resolve_system_prompt(Settings())
     assert prompt == load_core_prompt()
 
 
 def test_atomic_prompt_appends_preferred_test_command() -> None:
-    from coderking.prompts.loader import append_verification_hint
-
     base = load_core_prompt()
-    hinted = resolve_system_prompt(
-        Settings(extension="atomic"),
-        Role.CODING,
-        test_command="python -m pytest -q",
-    )
+    hinted = resolve_system_prompt(Settings(), test_command="python -m pytest -q")
     assert hinted.startswith(base)
     assert "python -m pytest -q" in hinted
     assert append_verification_hint(base, None) == base
-
-
-def test_swe_profile_uses_role_prompt() -> None:
-    prompt = resolve_system_prompt(Settings(extension="swe"), Role.REVIEWER)
-    assert prompt == load_swe_role_prompt(Role.REVIEWER)
 
 
 class _CaptureLLM:

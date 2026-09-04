@@ -35,7 +35,6 @@ def live_settings(workspace: Path, **overrides: object) -> Settings:
         "sandbox_mode": "local",
         "workspace": workspace,
         "max_iterations": 16,
-        "extension": "swe",
     }
     data.update(overrides)
     base = load_settings(workspace=workspace)

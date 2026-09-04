@@ -27,7 +27,8 @@ def test_run_help_exposes_test_soft_hint() -> None:
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
     assert "--test" in result.stdout
-    assert "workflow" in result.stdout.lower() or "hint" in result.stdout.lower()
+    assert "--extension" not in result.stdout
+    assert "hint" in result.stdout.lower()
 
 
 @pytest.mark.asyncio
@@ -51,7 +52,6 @@ async def test_atomic_run_injects_test_command_into_system_prompt(tmp_path: Path
             sandbox_mode="local",
             workspace=tmp_path,
             max_iterations=1,
-            extension="atomic",
         ),
         llm,
     )

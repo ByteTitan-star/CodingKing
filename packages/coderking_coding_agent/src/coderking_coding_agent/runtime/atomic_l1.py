@@ -16,7 +16,7 @@ from coderking_agent_core.loop import (
 from coderking_agent_core.types import AgentContext, AgentMessage, AgentTool
 from coderking_coding_agent.context.project_docs import inject_project_instructions
 from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
-from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
+from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
@@ -31,9 +31,9 @@ from coderking_coding_agent.runtime.events import (
     token_event,
     tool_event,
 )
-from coderking_coding_agent.runtime.loop import _audit_policy_decision
 from coderking_coding_agent.runtime.queues import RunMessageQueues
 from coderking_coding_agent.runtime.state import AgentState, Role, TaskStatus, ToolRecord
+from coderking_coding_agent.runtime.support import audit_policy_decision
 from coderking_coding_agent.safety.policy import PolicyAction, PolicyEngine
 from coderking_coding_agent.sandbox.cow import CowWorkspace
 from coderking_coding_agent.tools.base import Tool
@@ -73,7 +73,7 @@ def wrap_phase1_tool(
                 arguments=kwargs,
             )
         )
-        _audit_policy_decision(source, tool.name, kwargs, decision)
+        audit_policy_decision(source, tool.name, kwargs, decision)
         if decision.action == PolicyAction.DENY:
             return False, f"policy denied: {decision.reason}"
         if decision.action == PolicyAction.ASK and not auto_approve:
@@ -135,9 +135,9 @@ class AtomicL1Runtime:
 
     def __init__(
         self,
-        config: HarnessConfig,
+        config: RuntimeConfig,
         llm: LLMProvider,
-        bindings: HarnessBindings,
+        bindings: RuntimeBindings,
         *,
         system_prompt: str,
         cancel: Any | None = None,

@@ -43,19 +43,11 @@ class TaskController:
         self.tasks: dict[str, ManagedTask] = {}
         self._lock = asyncio.Lock()
 
-    def _runtime(
-        self,
-        cancel: CancellationToken,
-        *,
-        extension: str | None = None,
-    ) -> AgentRuntime:
+    def _runtime(self, cancel: CancellationToken) -> AgentRuntime:
         memory_path = self.settings.resolved_workspace() / ".coderking" / "memory.db"
         provider = self._llm if self._llm is not None else OpenAICompatProvider(self.settings)
-        settings = self.settings
-        if extension is not None and extension != settings.extension:
-            settings = settings.model_copy(update={"extension": extension})
         return AgentRuntime(
-            settings,
+            self.settings,
             provider,
             memory=MemoryStore(memory_path),
             cancel=cancel,
@@ -75,7 +67,6 @@ class TaskController:
         auto_approve: bool = False,
         test_command: str | None = None,
         state: AgentState | None = None,
-        extension: str | None = None,
     ) -> ManagedTask:
         root = (workspace or self.settings.resolved_workspace()).resolve()
         managed = ManagedTask(
@@ -96,7 +87,7 @@ class TaskController:
 
         async def runner() -> None:
             try:
-                await self._runtime(managed.cancel, extension=extension).run(
+                await self._runtime(managed.cancel).run(
                     prompt,
                     root,
                     on_event=on_event,

@@ -85,7 +85,6 @@ class TaskCreate(BaseModel):
     repository: str | None = None
     auto_approve: bool = False
     test_command: str | None = None
-    extension: str | None = None
 
 
 class SteerBody(BaseModel):
@@ -132,15 +131,11 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
                 403,
                 "auto_approve over HTTP requires CODERKING_HTTP_AUTO_APPROVE=1",
             )
-        extension = body.extension
-        if extension is not None and extension not in {"atomic", "swe"}:
-            raise HTTPException(400, "extension must be 'atomic' or 'swe'")
         task = await ctrl.create_task(
             body.prompt,
             workspace,
             auto_approve=auto_approve,
             test_command=body.test_command,
-            extension=extension,
         )
         return ctrl.public_task(task.state.task_id)
 

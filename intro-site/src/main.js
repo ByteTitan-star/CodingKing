@@ -59,7 +59,7 @@ app.innerHTML = `
         <li class="loop__step" data-step="5"><strong>Re-perceive</strong><span>决定继续下一轮还是结束</span></li>
       </ol>
       <p class="note">
-        实现上由 L1 的显式五阶段 FSM 驱动；SWE 模式还会在循环中切换「角色」并限制可用工具集。
+        实现上由 L1 的显式五阶段 FSM 驱动；模型每轮自行选择四原子工具，无固定角色 workflow。
       </p>
     </section>
 
@@ -85,7 +85,7 @@ app.innerHTML = `
         <article class="layer">
           <span class="layer__tag">L2</span>
           <h3>coderking_coding_agent</h3>
-          <p>工具、沙箱、会话、安全策略、SWE Harness 与 Atomic 扩展。</p>
+          <p>四原子工具、沙箱、会话、安全策略与可选扩展（MCP 等）。</p>
         </article>
         <article class="layer">
           <span class="layer__tag">L3</span>
@@ -102,9 +102,9 @@ app.innerHTML = `
     <section class="section" id="orchestrate">
       <div class="section__head">
         <p class="eyebrow">03 · 编排模式</p>
-        <h2>不是主从多 Agent</h2>
+        <h2>不是主从多 Agent，也不是 workflow</h2>
         <p class="section__lead">
-          仓库里<strong>没有</strong>「主 Agent 调度多个从 Agent」的编排器。始终是<strong>同一条循环、同一条 LLM 对话流</strong>。
+          仓库里<strong>没有</strong>「主 Agent 调度多个从 Agent」的编排器，也<strong>没有</strong>固定角色流水线。始终是<strong>同一条循环、同一条 LLM 对话流</strong>。
         </p>
       </div>
       <div class="split">
@@ -113,27 +113,17 @@ app.innerHTML = `
           <ul>
             <li>不是 Planner / Coder / Tester 三个独立进程互发消息</li>
             <li>不是主从 Swarm / 多 Agent 投票</li>
-            <li>角色不是 FSM 状态，而是 L2 Harness 的软约束</li>
+            <li>不是固定五角色 workflow（已移除）</li>
           </ul>
         </div>
         <div class="panel panel--ok">
           <h3>实际是什么</h3>
           <ul>
-            <li><strong>默认 SWE</strong>：单循环内切换角色（规划 → 编码 → 执行 → 审查，失败进修复）</li>
-            <li><strong>可选 Atomic</strong>：<code>extension=atomic</code> 走 L1 纯 Loop，只绑四原子工具</li>
-            <li><strong>Steering / Follow-up</strong>：运行中可插入转向消息，成功后可排队跟进任务</li>
+            <li><strong>纯 Coding Agent</strong>：L1 Loop + 四原子工具（Read/Write/Edit/Bash）</li>
+            <li><strong>提示词验收</strong>：改完用 bash 跑测试；可选 <code>--test</code> 软提示</li>
+            <li><strong>Steering / Follow-up</strong>：运行中可插入转向消息，结束后可排队跟进</li>
           </ul>
         </div>
-      </div>
-      <div class="roles" aria-label="SWE 角色流">
-        <span>Planner</span>
-        <span class="roles__arrow" aria-hidden="true"></span>
-        <span>Coding</span>
-        <span class="roles__arrow" aria-hidden="true"></span>
-        <span>Execution</span>
-        <span class="roles__arrow" aria-hidden="true"></span>
-        <span>Reviewer</span>
-        <span class="roles__repair">失败 → Repair → 再测</span>
       </div>
     </section>
 
@@ -141,25 +131,16 @@ app.innerHTML = `
       <div class="section__head">
         <p class="eyebrow">04 · 基本工具</p>
         <h2>绑定了哪些能力</h2>
-        <p class="section__lead">按扩展配置不同，工具面宽窄不同；动态工具与 MCP 可在运行中扩展。</p>
+        <p class="section__lead">核心只有四原子工具；动态工具与 MCP 可在运行中扩展。</p>
       </div>
       <div class="tool-grid">
         <article class="tool">
-          <h3>Atomic 四件套</h3>
-          <p class="tool__mode">extension = atomic</p>
+          <h3>四原子工具</h3>
+          <p class="tool__mode">Coding Agent 默认工具面</p>
           <ul class="chips">
             <li>read</li><li>write</li><li>edit</li><li>bash</li>
           </ul>
-          <p>Pi 风格极简：读写改文件 + 终端，由 L1 <code>run_agent_loop</code> 驱动。</p>
-        </article>
-        <article class="tool">
-          <h3>SWE Harness 工具</h3>
-          <p class="tool__mode">默认 extension = swe</p>
-          <ul class="chips">
-            <li>read_file</li><li>write_file</li><li>edit_file</li><li>search_code</li>
-            <li>shell</li><li>run_tests</li><li>git_*</li><li>finish_task…</li>
-          </ul>
-          <p>按角色白名单开放；含规划/提交/请求修复等元工具。</p>
+          <p>Pi 风格极简：读写改文件 + 终端，由 L1 <code>run_agent_loop</code> 驱动；步骤顺序由模型决定。</p>
         </article>
         <article class="tool">
           <h3>扩展能力</h3>
@@ -193,7 +174,7 @@ app.innerHTML = `
         </li>
         <li>
           <strong>策略引擎</strong>
-          <span>拒绝危险 shell / 敏感文件写入；删除、commit、MCP 等可要求审批</span>
+          <span>拒绝危险 shell / 敏感文件写入；危险操作可要求审批</span>
         </li>
       </ul>
     </section>
@@ -205,11 +186,11 @@ app.innerHTML = `
       </div>
       <div class="channels">
         <p><strong>通道：</strong>CLI · Web（WS / SSE）· TUI · RPC stdio · SDK 嵌入 · Desktop（Electron）</p>
-        <p><strong>上下文：</strong>角色 System Prompt · 项目 <code>AGENTS.md</code> · Skills 延迟加载 · 会话 JSONL 树状持久化</p>
+        <p><strong>上下文：</strong>极简 System Prompt · 项目 <code>AGENTS.md</code> · Skills 延迟加载 · 会话 JSONL 树状持久化</p>
       </div>
       <blockquote class="takeaway">
         <p>
-          一句话记住：CoderKing 用<strong>单 Agent 循环</strong>完成编码任务；SWE 用角色收紧工具面，Atomic 用四工具极简 Loop；沙箱与策略负责安全边界，CLI/Web/桌面都接到同一 Runtime。
+          一句话记住：CoderKing 是<strong>单 Agent 纯循环 Coding Agent</strong>（对齐 Pi）；四原子工具 + 提示词验收；没有固定角色 workflow；沙箱与策略负责安全边界，CLI/Web/桌面都接到同一 Runtime。
         </p>
       </blockquote>
     </section>

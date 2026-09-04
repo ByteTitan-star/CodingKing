@@ -1,16 +1,19 @@
-"""L2 SWE harness runtime package."""
+"""L2 coding-agent runtime package (pure loop + tools; no role workflow)."""
 
 from coderking_coding_agent.runtime.atomic_l1 import AtomicL1Runtime
-from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
+from coderking_coding_agent.runtime.config import (
+    HarnessBindings,
+    HarnessConfig,
+    RuntimeBindings,
+    RuntimeConfig,
+)
 from coderking_coding_agent.runtime.events import AgentEvent
-from coderking_coding_agent.runtime.loop import AgentRuntime, ApprovalFn, EventSink
 from coderking_coding_agent.runtime.queues import RunMessageQueues
-from coderking_coding_agent.runtime.roles import ROLE_TOOLS
 from coderking_coding_agent.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
+from coderking_coding_agent.runtime.support import ApprovalFn, EventSink
 
 __all__ = [
     "AgentEvent",
-    "AgentRuntime",
     "AgentState",
     "ApprovalFn",
     "AtomicL1Runtime",
@@ -18,9 +21,10 @@ __all__ = [
     "HarnessBindings",
     "HarnessConfig",
     "PlanItem",
-    "ROLE_TOOLS",
     "Role",
     "RunMessageQueues",
+    "RuntimeBindings",
+    "RuntimeConfig",
     "TaskStatus",
     "ToolRecord",
 ]

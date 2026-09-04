@@ -32,45 +32,38 @@ def _call(name: str, **arguments: object) -> ToolCall:
 def _scripts(task_id: str) -> list[LLMResponse]:
     if task_id == "bug_fix_add":
         return [
-            LLMResponse("", [_call("submit_plan", steps=["edit", "test", "review"])]),
             LLMResponse(
                 "",
                 [
                     _call(
-                        "write_file",
+                        "write",
                         path="calc.py",
                         content="def add(a, b):\n    return a + b\n",
                     )
                 ],
             ),
-            LLMResponse("", [_call("submit_for_execution")]),
-            LLMResponse("", [_call("run_tests")]),
-            LLMResponse("", [_call("finish_task", summary="fixed add")]),
+            LLMResponse("fixed", []),
         ]
     if task_id == "feature_add_greet":
         return [
-            LLMResponse("", [_call("submit_plan", steps=["implement", "test", "review"])]),
             LLMResponse(
                 "",
                 [
                     _call(
-                        "write_file",
+                        "write",
                         path="greet.py",
                         content='def greet(name: str) -> str:\n    return f"hello, {name}"\n',
                     )
                 ],
             ),
-            LLMResponse("", [_call("submit_for_execution")]),
-            LLMResponse("", [_call("run_tests")]),
-            LLMResponse("", [_call("finish_task", summary="greet implemented")]),
+            LLMResponse("implemented", []),
         ]
     return [
-        LLMResponse("", [_call("submit_plan", steps=["refactor", "test", "review"])]),
         LLMResponse(
             "",
             [
                 _call(
-                    "write_file",
+                    "write",
                     path="geometry.py",
                     content=(
                         "def rect_area(w: int, h: int) -> int:\n"
@@ -83,9 +76,7 @@ def _scripts(task_id: str) -> list[LLMResponse]:
                 )
             ],
         ),
-        LLMResponse("", [_call("submit_for_execution")]),
-        LLMResponse("", [_call("run_tests")]),
-        LLMResponse("", [_call("finish_task", summary="refactored")]),
+        LLMResponse("refactored", []),
     ]
 
 

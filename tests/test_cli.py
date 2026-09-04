@@ -1,5 +1,7 @@
+import re
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from coderking.cli import app
@@ -8,18 +10,74 @@ from coderking.registry import persist_state
 from coderking.runtime.state import AgentState, Role, TaskStatus
 
 runner = CliRunner()
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI so Rich-styled help still matches option literals like --test."""
+    return _ANSI.sub("", text)
 
 
 def test_cli_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "run" in result.stdout
-    assert "serve" in result.stdout
-    assert "eval" in result.stdout
-    assert "chat" in result.stdout
-    assert "tui" in result.stdout
-    assert "stop" in result.stdout
-    assert "status" in result.stdout
+    out = _plain(result.stdout)
+    assert "run" in out
+    assert "serve" in out
+    assert "eval" in out
+    assert "chat" in out
+    assert "tui" in out
+    assert "stop" in out
+    assert "status" in out
+
+
+def test_run_help_exposes_test_soft_hint() -> None:
+    result = runner.invoke(app, ["run", "--help"])
+    assert result.exit_code == 0
+    out = _plain(result.stdout)
+    assert "--test" in out
+    assert "--extension" not in out
+    assert "hint" in out.lower()
+
+
+@pytest.mark.asyncio
+async def test_atomic_run_injects_test_command_into_system_prompt(tmp_path: Path) -> None:
+    from coderking.config import Settings
+    from coderking.llm.provider import LLMResponse
+    from coderking.runtime.loop import AgentRuntime
+
+    class CaptureLLM:
+        def __init__(self) -> None:
+            self.messages: list = []
+
+        async def complete(self, messages, tools, cancel=None):  # noqa: ANN001, ARG002
+            self.messages = list(messages)
+            return LLMResponse("done", [])
+
+    llm = CaptureLLM()
+    runtime = AgentRuntime(
+        Settings(
+            openai_api_key="x",
+            sandbox_mode="local",
+            workspace=tmp_path,
+            max_iterations=1,
+        ),
+        llm,
+    )
+
+    async def on_event(_event) -> None:  # noqa: ANN001
+        return None
+
+    await runtime.run(
+        "fix add",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+        test_command="python -m pytest -q",
+    )
+    system = str(llm.messages[0]["content"])
+    assert "python -m pytest -q" in system
+    assert "Preferred verification command" in system
 
 
 def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

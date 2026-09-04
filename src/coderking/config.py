@@ -92,7 +92,6 @@ class Settings(BaseSettings):
 
     max_iterations: int = 24
     allow_commit: bool = False
-    extension: str = "swe"
     workspace: Path = Field(default_factory=lambda: Path.cwd())
 
     def resolved_workspace(self) -> Path:

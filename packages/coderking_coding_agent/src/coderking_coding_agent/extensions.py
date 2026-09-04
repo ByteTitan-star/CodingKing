@@ -1,4 +1,4 @@
-"""L2 extension registry — SWE harness and MCP register here."""
+"""L2 extension registry for optional capability packs (MCP, skills adapters)."""
 
 from __future__ import annotations
 

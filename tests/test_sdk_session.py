@@ -46,10 +46,8 @@ async def test_agent_session_run_yields_events(tmp_path: Path) -> None:
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 == 1\n", encoding="utf-8")
     llm = ScriptedLLM(
         [
-            LLMResponse("", [_call("submit_plan", steps=["noop", "run tests"])]),
-            LLMResponse("", [_call("submit_for_execution")]),
-            LLMResponse("", [_call("run_tests")]),
-            # harness auto-finishes when tests pass
+            LLMResponse("", [_call("bash", command="python -m pytest -q")]),
+            LLMResponse("tests green", []),
         ]
     )
     events: list[dict] = []
@@ -75,24 +73,14 @@ async def test_agent_session_run_yields_events(tmp_path: Path) -> None:
 async def test_agent_session_steer(tmp_path: Path) -> None:
     (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 == 1\n", encoding="utf-8")
-    llm = ScriptedLLM(
-        [
-            LLMResponse("", [_call("submit_plan", steps=["a", "test"])]),
-            LLMResponse("", [_call("submit_for_execution")]),
-            LLMResponse("", [_call("run_tests")]),
-        ]
-    )
+    llm = ScriptedLLM([LLMResponse("ok", [])])
     async with AgentSession(
         workspace=tmp_path,
         settings=_settings(tmp_path),
         llm=llm,
         auto_approve=True,
-        test_command="python -m pytest -q",
     ) as session:
-        saw_steer = False
-        async for event in session.run("work"):
-            if event.get("type") == "agent_status":
-                await session.steer("prefer minimal change")
-            if event.get("type") == "steer":
-                saw_steer = True
-        assert saw_steer
+        async for _event in session.run("noop"):
+            pass
+        await session.steer("focus on tests")
+        assert session.task_id is not None

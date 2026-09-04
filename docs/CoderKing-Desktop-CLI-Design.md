@@ -28,7 +28,7 @@
 | 布局 | 混合 C：默认极简聊天；任务运行时自动展开右侧工作区 |
 | 后端启动 | 开发：连接本机 `coderking serve`；发布安装包再内嵌 Runtime（二期） |
 | 旧 Web 三栏 UI | 文档层面废弃；代码可暂留，与 Desktop 冲突时以 Desktop 为准 |
-| Agent Runtime | 不重写；复用现有 Planner → Coding → Execution → Reviewer → Repair |
+| Agent Runtime | 不重写；复用现有纯 Coding Agent Loop（read/write/edit/bash） |
 
 ------------------------------------------------------------------------
 
@@ -40,13 +40,12 @@
 实现 FastAPI 用户认证系统
 ```
 
-Agent 自动完成：需求理解 → 仓库分析 → 规划 → 改代码 → 沙箱执行 → 测试 → 修复 → 交付。
+Agent 自动完成：需求理解 → 仓库分析 → 改代码 → 沙箱执行 → 测试验证 → 失败则继续迭代 → 交付。
 
 用户在 Desktop 中需要看到：
 
-- 会话式对话流（需求、阶段、摘要）
-- 当前角色与状态（Planner / Coding / …）
-- Task Plan
+- 会话式对话流（需求、摘要）
+- Agent 状态（running / waiting / done）
 - Tool Trace（可折叠气泡或侧栏）
 - 修改文件列表与 Task-level Diff（+/-）
 - Terminal / Test 输出

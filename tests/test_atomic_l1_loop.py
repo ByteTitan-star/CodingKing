@@ -36,25 +36,15 @@ def _settings(workspace: Path, **kwargs: object) -> Settings:
         "sandbox_mode": "local",
         "workspace": workspace,
         "max_iterations": 10,
-        "extension": "atomic",
     }
     data.update(kwargs)
     return Settings(**data)
 
 
 @pytest.mark.asyncio
-async def test_atomic_extension_uses_l1_runtime(tmp_path: Path) -> None:
+async def test_default_runtime_uses_l1(tmp_path: Path) -> None:
     runtime = AgentRuntime(_settings(tmp_path), ScriptedLLM([LLMResponse("done", [])]))
     assert isinstance(runtime._backend, AtomicL1Runtime)
-
-
-@pytest.mark.asyncio
-async def test_swe_extension_uses_l2_harness(tmp_path: Path) -> None:
-    runtime = AgentRuntime(
-        _settings(tmp_path, extension="swe"),
-        ScriptedLLM([LLMResponse("done", [])]),
-    )
-    assert not isinstance(runtime._backend, AtomicL1Runtime)
 
 
 @pytest.mark.asyncio

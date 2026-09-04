@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/%E4%B8%AD%E6%96%87-555555" alt="Chinese" />
 </p>
 
-> 用自然语言描述工程任务 —— 自动规划、改代码、在沙箱里跑测试，失败则进入修复循环，直到验证通过。CLI 与 Web 共用同一套 Agent Runtime。
+> 用自然语言描述工程任务 —— Coding Agent 用 read/write/edit/bash 改代码，在沙箱里跑测试，失败则继续迭代直到验证通过。CLI 与 Web 共用同一套 Agent Runtime。
 
 <p align="center">
   <a href="./docs/showcase/demo.html"><strong>打开工作台 Demo</strong></a>
@@ -19,21 +19,19 @@
 
 ## CoderKing 是什么？
 
-CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。你用自然语言描述任务，Agent 会规划步骤、修改仓库、在隔离沙箱中执行命令与测试；验证失败时自动进入 Repair 循环 —— CLI 与 Web 工作台调用的是同一套 Runtime，而不是两套重复逻辑。
+CoderKing 是面向软件工程的自主 **Coding Agent** 运行时（对齐 Pi）。你用自然语言描述任务；单一 Agent 循环使用四个工具（`read` / `write` / `edit` / `bash`）修改仓库、在隔离沙箱中跑检查，并持续迭代直到验证通过。CLI 与 Web 共用同一 Runtime —— **没有固定多角色 workflow**。
 
 第一期是可运行的 MVP（Python Runtime + React 工作台单仓），不是多租户 SaaS。
 
-## Agent 工作流
+## Agent 如何工作
 
-| 阶段 | 关键动作 | 阶段产出 |
-| --- | --- | --- |
-| 任务输入 | 在 CLI 或 Web 中描述 bug 修复、功能或重构需求。 | 清晰的工程任务说明 |
-| 规划 | 将任务拆成可审查的步骤。 | 结构化任务计划 |
-| 编码 | 在仓库中读取、搜索、编辑文件。 | 补丁后的源码 |
-| 执行 | 在沙箱中运行 shell 与测试。 | 命令与测试输出 |
-| 审查 | 对照计划与 diff 验证结果。 | 通过 / 失败判定 |
-| 修复 | 测试失败时诊断并再次修改。 | 修正后的实现 |
-| 交付 | 输出 diff 摘要；可选经批准后 git commit。 | 完成的任务 |
+| 步骤 | 发生什么 |
+| --- | --- |
+| 任务 | 在 CLI 或 Web 中描述 bug 修复、功能或重构。 |
+| 循环 | 模型每轮自行选择工具（探索 → 修改 → 跑检查）。 |
+| 验证 | 改完后用 `bash` 跑测试/lint（提示词引导；可选 `--test` 软提示）。 |
+| 迭代 | 失败则根据工具输出诊断并再改。 |
+| 交付 | 任务完成且验证通过后停止；人工审查 diff。 |
 
 ## 产品展示
 
@@ -41,20 +39,20 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 
 ![CoderKing 工作台 — bug 修复与 Repair 循环](docs/showcase/assets/product-workspace.png)
 
-单测失败后，Agent 依次经过 Planner → Coding → Execution → Repair。工作台在同一视图展示计划、工具调用、改动文件与 pytest 输出。
+单测失败后，Agent 走纯循环（改文件 → 跑测试 → 再修）。工作台在同一视图展示工具调用、改动文件与 pytest 输出。
 
 ### 统一 Diff
 
 ![CoderKing Diff 视图 — 修复后对比](docs/showcase/assets/product-diff.png)
 
-在接受或回滚前精确查看改动内容 —— 与 Reviewer 角色用于验收的是同一份 diff。
+在接受或回滚前精确查看改动内容。
 
 ## 产品界面
 
 | 工程工作台 | Diff 与运行时 |
 | --- | --- |
 | ![CoderKing 工程工作台](docs/showcase/assets/product-workspace.png) | ![CoderKing Diff 与运行时面板](docs/showcase/assets/product-diff.png) |
-| 描述任务、查看计划与 Agent 活动、浏览改动文件。 | 并排查看统一 diff、终端输出与测试结果。 |
+| 描述任务、查看 Agent 活动、浏览改动文件。 | 并排查看统一 diff、终端输出与测试结果。 |
 
 截图资源位于 [`docs/showcase/`](docs/showcase/)。可用 `python scripts/capture_showcase.py` 从静态 demo 页重拍，或在真实任务跑通后替换素材。
 
@@ -63,13 +61,14 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 | 能力 | 说明 |
 | --- | --- |
 | 统一 Runtime | CLI 与 Web 共用 Agent Runtime，避免重复编排。 |
-| ReAct + Reflection | 自研 Agent 循环，不依赖 LangChain / LangGraph。 |
-| 角色化工具权限 | Planner / Coding / Execution / Reviewer / Repair，各角色工具集隔离。 |
+| 纯 Agent 循环 | 对齐 Pi 的 ReAct 式循环；无 LangChain / LangGraph，无固定角色阶段。 |
+| 四原子工具 | 仅 `read` / `write` / `edit` / `bash`，步骤顺序由模型决定。 |
+| 提示词验收 | 改完用 bash 跑检查；可选 `--test` 软提示（非硬门禁）。 |
 | 沙箱执行 | Docker 为主；无 Docker 时 local 进程仅作开发 fallback，事件流会标明。 |
 | 多模型兼容 | OpenAI Compatible 网关 —— DeepSeek、GLM、Qwen、Ollama 等换 `base_url` 即可。 |
-| 人机协同 | 删文件、危险 shell、`git commit` 等默认需确认；`--yes` 可自动批准。 |
+| 人机协同 | 危险操作默认需确认；`--yes` 可自动批准。 |
 | 评测体系 | `eval/tasks` 覆盖 `bug_fix`、`feature_add`、`refactor`。 |
-| 可观测 | Web 展示计划、Tool Trace、终端输出、Diff 与 Sandbox 状态。 |
+| 可观测 | Web 展示 Tool Trace、终端输出、Diff 与 Sandbox 状态。 |
 
 <p align="center">
   <a href="./docs/showcase/demo.html"><strong>体验工作台 Demo</strong></a>
@@ -84,10 +83,9 @@ User → CLI / Web UI → FastAPI + WebSocket
                          ↓
                    Agent Runtime
                          ↓
-              Planner → Coding → Execution → Reviewer
-                         ↘ Repair ↗
+              L1 纯 Loop：Perceive → Decide → Act → Observe
                          ↓
-              Tools → Sandbox → Workspace
+              Tools（read/write/edit/bash）→ Sandbox → Workspace
 ```
 
 `coderking run` 默认进程内直接调用 Runtime，无需先起 HTTP 服务；`coderking serve` 将同一 Runtime 暴露给 Web。
@@ -119,6 +117,7 @@ CODERKING_SANDBOX_MODE=auto
 coderking init
 coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
 coderking run "修复当前仓库里失败的单元测试" --workspace .
+coderking run "修复失败测试" --workspace . --test "python -m pytest -q"
 coderking chat --workspace .
 coderking status
 coderking stop <task_id>

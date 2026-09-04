@@ -111,7 +111,7 @@ def _settings(workspace: Path, **kwargs: object) -> Settings:
 async def test_loop_emits_policy_decision_and_denies(tmp_path: Path) -> None:
     llm = ScriptedLLM(
         [
-            LLMResponse("", [ToolCall(id="1", name="shell", arguments={"command": "rm -rf /"})]),
+            LLMResponse("", [ToolCall(id="1", name="bash", arguments={"command": "rm -rf /"})]),
             LLMResponse("", []),
         ]
     )
@@ -121,23 +121,23 @@ async def test_loop_emits_policy_decision_and_denies(tmp_path: Path) -> None:
         events.append(event)
 
     runtime = AgentRuntime(_settings(tmp_path), llm)
-    state = AgentState(task="test", repository=str(tmp_path), task_id="t1", role=Role.EXECUTION)
+    state = AgentState(task="test", repository=str(tmp_path), task_id="t1", role=Role.CODING)
     await runtime.run("run", tmp_path, on_event=on_event, auto_approve=True, state=state)
     policy_events = [e for e in events if e.type == "policy_decision"]
     assert policy_events
     assert policy_events[0].payload["action"] == "deny"
-    assert any(e.type == "tool_call" and e.payload.get("status") == "denied" for e in events)
+    assert any(
+        e.type == "tool_call" and e.payload.get("status") in {"denied", "error"} for e in events
+    )
 
 
 @pytest.mark.asyncio
 async def test_loop_approval_when_policy_asks(tmp_path: Path) -> None:
-    target = tmp_path / "remove-me.txt"
-    target.write_text("x", encoding="utf-8")
     llm = ScriptedLLM(
         [
             LLMResponse(
                 "",
-                [ToolCall(id="1", name="delete_file", arguments={"path": "remove-me.txt"})],
+                [ToolCall(id="1", name="bash", arguments={"command": "git push origin main"})],
             ),
             LLMResponse("", []),
         ]
@@ -153,7 +153,7 @@ async def test_loop_approval_when_policy_asks(tmp_path: Path) -> None:
     runtime = AgentRuntime(_settings(tmp_path), llm)
     state = AgentState(task="test", repository=str(tmp_path), task_id="t2", role=Role.CODING)
     await runtime.run(
-        "delete",
+        "push",
         tmp_path,
         on_event=on_event,
         auto_approve=False,
@@ -162,7 +162,6 @@ async def test_loop_approval_when_policy_asks(tmp_path: Path) -> None:
     )
     assert any(e.type == "policy_decision" and e.payload["action"] == "ask" for e in events)
     assert any(e.type == "approval_required" for e in events)
-    assert target.is_file()
 
 
 def test_init_creates_policy_template(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

@@ -163,6 +163,7 @@ async def test_loop_approval_when_policy_asks(tmp_path: Path) -> None:
     assert any(e.type == "policy_decision" and e.payload["action"] == "ask" for e in events)
     assert any(e.type == "approval_required" for e in events)
 
+
 def test_init_creates_policy_template(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     from typer.testing import CliRunner
 

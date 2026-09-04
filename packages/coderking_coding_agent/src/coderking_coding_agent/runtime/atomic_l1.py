@@ -217,9 +217,7 @@ class AtomicL1Runtime:
                 registry=skill_registry,
             )
             for skill in injected_skills:
-                await on_event(
-                    skill_injected_event(skill.manifest.name, truncated=skill.truncated)
-                )
+                await on_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
         initial_messages = [
             AgentMessage(role=str(m["role"]), content=str(m.get("content") or ""))
             for m in seed

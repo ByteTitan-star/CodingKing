@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -9,26 +10,34 @@ from coderking.registry import persist_state
 from coderking.runtime.state import AgentState, Role, TaskStatus
 
 runner = CliRunner()
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI so Rich-styled help still matches option literals like --test."""
+    return _ANSI.sub("", text)
 
 
 def test_cli_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "run" in result.stdout
-    assert "serve" in result.stdout
-    assert "eval" in result.stdout
-    assert "chat" in result.stdout
-    assert "tui" in result.stdout
-    assert "stop" in result.stdout
-    assert "status" in result.stdout
+    out = _plain(result.stdout)
+    assert "run" in out
+    assert "serve" in out
+    assert "eval" in out
+    assert "chat" in out
+    assert "tui" in out
+    assert "stop" in out
+    assert "status" in out
 
 
 def test_run_help_exposes_test_soft_hint() -> None:
     result = runner.invoke(app, ["run", "--help"])
     assert result.exit_code == 0
-    assert "--test" in result.stdout
-    assert "--extension" not in result.stdout
-    assert "hint" in result.stdout.lower()
+    out = _plain(result.stdout)
+    assert "--test" in out
+    assert "--extension" not in out
+    assert "hint" in out.lower()
 
 
 @pytest.mark.asyncio

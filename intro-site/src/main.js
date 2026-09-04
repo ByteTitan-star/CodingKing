@@ -119,13 +119,13 @@ app.innerHTML = `
         <div class="panel panel--ok">
           <h3>实际是什么</h3>
           <ul>
-            <li><strong>默认 SWE</strong>：单循环内切换角色（规划 → 编码 → 执行 → 审查，失败进修复）</li>
-            <li><strong>可选 Atomic</strong>：<code>extension=atomic</code> 走 L1 纯 Loop，只绑四原子工具</li>
+            <li><strong>默认 Atomic</strong>：L1 纯 Loop + 四原子工具（Read/Write/Edit/Bash），无固定角色 workflow</li>
+            <li><strong>可选 SWE</strong>：<code>extension=swe</code> 才启用角色切换（规划 → 编码 → 执行 → 审查 / 修复）</li>
             <li><strong>Steering / Follow-up</strong>：运行中可插入转向消息，成功后可排队跟进任务</li>
           </ul>
         </div>
       </div>
-      <div class="roles" aria-label="SWE 角色流">
+      <div class="roles" aria-label="可选 SWE 角色流">
         <span>Planner</span>
         <span class="roles__arrow" aria-hidden="true"></span>
         <span>Coding</span>
@@ -133,7 +133,7 @@ app.innerHTML = `
         <span>Execution</span>
         <span class="roles__arrow" aria-hidden="true"></span>
         <span>Reviewer</span>
-        <span class="roles__repair">失败 → Repair → 再测</span>
+        <span class="roles__repair">仅 --extension swe：失败 → Repair → 再测</span>
       </div>
     </section>
 
@@ -146,7 +146,7 @@ app.innerHTML = `
       <div class="tool-grid">
         <article class="tool">
           <h3>Atomic 四件套</h3>
-          <p class="tool__mode">extension = atomic</p>
+          <p class="tool__mode">默认 extension = atomic</p>
           <ul class="chips">
             <li>read</li><li>write</li><li>edit</li><li>bash</li>
           </ul>
@@ -154,7 +154,7 @@ app.innerHTML = `
         </article>
         <article class="tool">
           <h3>SWE Harness 工具</h3>
-          <p class="tool__mode">默认 extension = swe</p>
+          <p class="tool__mode">可选 extension = swe</p>
           <ul class="chips">
             <li>read_file</li><li>write_file</li><li>edit_file</li><li>search_code</li>
             <li>shell</li><li>run_tests</li><li>git_*</li><li>finish_task…</li>
@@ -209,7 +209,7 @@ app.innerHTML = `
       </div>
       <blockquote class="takeaway">
         <p>
-          一句话记住：CoderKing 用<strong>单 Agent 循环</strong>完成编码任务；SWE 用角色收紧工具面，Atomic 用四工具极简 Loop；沙箱与策略负责安全边界，CLI/Web/桌面都接到同一 Runtime。
+          一句话记住：CoderKing 用<strong>单 Agent 纯循环</strong>完成编码任务（对齐 Pi）；默认 Atomic 四工具；SWE 角色 harness 仅显式 opt-in；沙箱与策略负责安全边界，CLI/Web/桌面都接到同一 Runtime。
         </p>
       </blockquote>
     </section>

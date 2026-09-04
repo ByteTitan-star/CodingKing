@@ -117,16 +117,21 @@ def run(
     yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
     commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
     extension: str = typer.Option(
-        "swe",
+        "atomic",
         "--extension",
-        help="Tool profile: swe (5-role harness) or atomic (read/write/edit/bash only)",
+        help="Tool profile: atomic (default, Pi-style pure loop) or swe (optional 5-role harness)",
+    ),
+    test: str | None = typer.Option(
+        None,
+        "--test",
+        help="Preferred verification command (soft prompt hint for bash; not a workflow gate)",
     ),
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
     settings = load_settings(
         workspace=_workspace(workspace), allow_commit=commit, extension=extension
     )
-    asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None))
+    asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None, test_command=test))
 
 
 @app.command()
@@ -134,6 +139,11 @@ def chat(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
     yes: bool = typer.Option(False, "--yes"),
     commit: bool = typer.Option(False, "--commit"),
+    test: str | None = typer.Option(
+        None,
+        "--test",
+        help="Preferred verification command (soft prompt hint for bash; not a workflow gate)",
+    ),
 ) -> None:
     """Interactive session that continues on the same workspace."""
     root = _workspace(workspace)
@@ -147,7 +157,9 @@ def chat(
             break
         if not prompt or prompt in {"/exit", "/quit"}:
             break
-        state = asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=state))
+        state = asyncio.run(
+            _run_task(prompt, settings, auto_approve=yes, resume=state, test_command=test)
+        )
         save_session(
             root,
             {
@@ -199,6 +211,7 @@ async def _run_task(
     settings,
     auto_approve: bool,
     resume: AgentState | None,
+    test_command: str | None = None,
 ) -> AgentState:
     cancel = CancellationToken()
     runtime = AgentRuntime(settings, OpenAICompatProvider(settings), cancel=cancel)
@@ -232,6 +245,7 @@ async def _run_task(
             on_event=wrapped,
             approve=None if auto_approve else approve,
             auto_approve=auto_approve,
+            test_command=test_command,
             state=resume,
         )
     _print_state(state)

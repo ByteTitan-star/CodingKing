@@ -1,6 +1,26 @@
 from pathlib import Path
 
-from coderking.config import load_settings, write_yaml_config
+from coderking.config import Settings, load_settings, write_yaml_config
+from coderking.runtime.loop import AgentRuntime
+from coderking_coding_agent.runtime.atomic_l1 import AtomicL1Runtime
+
+
+def test_default_extension_is_atomic() -> None:
+    assert Settings().extension == "atomic"
+
+
+def test_default_runtime_uses_atomic_l1(tmp_path: Path) -> None:
+    class _LLM:
+        async def complete(self, messages, tools, cancel=None):  # noqa: ANN001, ARG002
+            from coderking.llm.provider import LLMResponse
+
+            return LLMResponse("done", [])
+
+    runtime = AgentRuntime(
+        Settings(openai_api_key="x", sandbox_mode="local", workspace=tmp_path),
+        _LLM(),
+    )
+    assert isinstance(runtime._backend, AtomicL1Runtime)
 
 
 def test_yaml_then_env_then_cli(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
@@ -18,6 +38,15 @@ def test_yaml_then_env_then_cli(tmp_path: Path, monkeypatch) -> None:  # noqa: A
     assert settings.model == "from-env"
     settings = load_settings(workspace=tmp_path, model="from-cli")
     assert settings.model == "from-cli"
+
+
+def test_extension_from_yaml_and_env(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("coderking.config.load_dotenv", lambda *args, **kwargs: False)
+    monkeypatch.delenv("CODERKING_EXTENSION", raising=False)
+    write_yaml_config(tmp_path, {"extension": "swe"})
+    assert load_settings(workspace=tmp_path).extension == "swe"
+    monkeypatch.setenv("CODERKING_EXTENSION", "atomic")
+    assert load_settings(workspace=tmp_path).extension == "atomic"
 
 
 def test_config_model_does_not_write_api_key(tmp_path: Path) -> None:

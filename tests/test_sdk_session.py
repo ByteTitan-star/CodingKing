@@ -37,6 +37,7 @@ def _settings(workspace: Path) -> Settings:
         sandbox_mode="local",
         workspace=workspace,
         max_iterations=12,
+        extension="swe",
     )
 
 

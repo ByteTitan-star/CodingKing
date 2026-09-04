@@ -32,6 +32,7 @@ YAML_KEYS = (
     "sandbox_e2b_template",
     "max_iterations",
     "allow_commit",
+    "extension",
 )
 
 ENV_MAP = {
@@ -54,6 +55,7 @@ ENV_MAP = {
     "sandbox_e2b_template": "CODERKING_E2B_TEMPLATE",
     "max_iterations": "CODERKING_MAX_ITERATIONS",
     "allow_commit": "CODERKING_ALLOW_COMMIT",
+    "extension": "CODERKING_EXTENSION",
 }
 
 
@@ -92,7 +94,8 @@ class Settings(BaseSettings):
 
     max_iterations: int = 24
     allow_commit: bool = False
-    extension: str = "swe"
+    # Pi-aligned default: pure L1 loop + four atomic tools. Opt into SWE harness with "swe".
+    extension: str = "atomic"
     workspace: Path = Field(default_factory=lambda: Path.cwd())
 
     def resolved_workspace(self) -> Path:

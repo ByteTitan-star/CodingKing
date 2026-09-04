@@ -41,7 +41,7 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 
 ![CoderKing 工作台 — bug 修复与 Repair 循环](docs/showcase/assets/product-workspace.png)
 
-单测失败后，Agent 依次经过 Planner → Coding → Execution → Repair。工作台在同一视图展示计划、工具调用、改动文件与 pytest 输出。
+单测失败后，Agent 走纯循环（改文件 → 跑测试 → 再修）。工作台在同一视图展示计划、工具调用、改动文件与 pytest 输出。
 
 ### 统一 Diff
 
@@ -63,8 +63,9 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 | 能力 | 说明 |
 | --- | --- |
 | 统一 Runtime | CLI 与 Web 共用 Agent Runtime，避免重复编排。 |
-| ReAct + Reflection | 自研 Agent 循环，不依赖 LangChain / LangGraph。 |
-| 角色化工具权限 | Planner / Coding / Execution / Reviewer / Repair，各角色工具集隔离。 |
+| ReAct + Reflection | 自研 Agent 循环（对齐 Pi），不依赖 LangChain / LangGraph。 |
+| 默认 Atomic 四工具 | 默认 `extension=atomic`：Read / Write / Edit / Bash 纯 Loop，无固定角色 workflow。 |
+| 可选 SWE Harness | `--extension swe` 启用 Planner/Coding/Execution/Reviewer/Repair（显式 opt-in）。 |
 | 沙箱执行 | Docker 为主；无 Docker 时 local 进程仅作开发 fallback，事件流会标明。 |
 | 多模型兼容 | OpenAI Compatible 网关 —— DeepSeek、GLM、Qwen、Ollama 等换 `base_url` 即可。 |
 | 人机协同 | 删文件、危险 shell、`git commit` 等默认需确认；`--yes` 可自动批准。 |
@@ -82,12 +83,13 @@ CoderKing 是一个面向软件工程场景的自主 Coding Agent 运行时。�
 ```text
 User → CLI / Web UI → FastAPI + WebSocket
                          ↓
-                   Agent Runtime
+                   Agent Runtime（默认 Atomic）
                          ↓
-              Planner → Coding → Execution → Reviewer
-                         ↘ Repair ↗
+              L1 纯 Loop：Perceive → Decide → Act → Observe
                          ↓
-              Tools → Sandbox → Workspace
+              Tools（read/write/edit/bash）→ Sandbox → Workspace
+
+可选：--extension swe → L2 SWE Harness（角色切换，非默认）
 ```
 
 `coderking run` 默认进程内直接调用 Runtime，无需先起 HTTP 服务；`coderking serve` 将同一 Runtime 暴露给 Web。
@@ -119,6 +121,7 @@ CODERKING_SANDBOX_MODE=auto
 coderking init
 coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
 coderking run "修复当前仓库里失败的单元测试" --workspace .
+coderking run "修复失败测试" --workspace . --test "python -m pytest -q"
 coderking chat --workspace .
 coderking status
 coderking stop <task_id>
@@ -150,6 +153,7 @@ cd web && npm install && npm run dev
 | `CODERKING_MODEL` | 模型名 |
 | `CODERKING_DISABLE_THINKING` | 关闭推理模型 thinking 字段（默认 true） |
 | `CODERKING_SANDBOX_MODE` | `auto` / `docker` / `local` |
+| `CODERKING_EXTENSION` | `atomic`（默认）或 `swe`（可选角色 harness） |
 | `CODERKING_ALLOW_COMMIT` | 是否允许 `git_commit` 工具 |
 
 若上游 API 不支持 `thinking` 字段，客户端会自动去掉该字段并重试一次。

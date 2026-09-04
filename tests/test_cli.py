@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from coderking.cli import app
@@ -20,6 +21,54 @@ def test_cli_help() -> None:
     assert "tui" in result.stdout
     assert "stop" in result.stdout
     assert "status" in result.stdout
+
+
+def test_run_help_exposes_test_soft_hint() -> None:
+    result = runner.invoke(app, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--test" in result.stdout
+    assert "workflow" in result.stdout.lower() or "hint" in result.stdout.lower()
+
+
+@pytest.mark.asyncio
+async def test_atomic_run_injects_test_command_into_system_prompt(tmp_path: Path) -> None:
+    from coderking.config import Settings
+    from coderking.llm.provider import LLMResponse
+    from coderking.runtime.loop import AgentRuntime
+
+    class CaptureLLM:
+        def __init__(self) -> None:
+            self.messages: list = []
+
+        async def complete(self, messages, tools, cancel=None):  # noqa: ANN001, ARG002
+            self.messages = list(messages)
+            return LLMResponse("done", [])
+
+    llm = CaptureLLM()
+    runtime = AgentRuntime(
+        Settings(
+            openai_api_key="x",
+            sandbox_mode="local",
+            workspace=tmp_path,
+            max_iterations=1,
+            extension="atomic",
+        ),
+        llm,
+    )
+
+    async def on_event(_event) -> None:  # noqa: ANN001
+        return None
+
+    await runtime.run(
+        "fix add",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+        test_command="python -m pytest -q",
+    )
+    system = str(llm.messages[0]["content"])
+    assert "python -m pytest -q" in system
+    assert "Preferred verification command" in system
 
 
 def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

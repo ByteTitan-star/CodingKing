@@ -60,7 +60,7 @@ def _config_for(settings: Settings) -> HarnessConfig:
 
 
 class AgentRuntime:
-    """Compatibility wrapper: ``extension=atomic`` → L1 loop; else SWE L2 harness."""
+    """Facade: default Pi-style atomic L1 loop; ``extension=swe`` → optional L2 harness."""
 
     def __init__(
         self,
@@ -76,22 +76,24 @@ class AgentRuntime:
         self.cancel = cancel or CancellationToken()
         config = _config_for(settings)
         bindings = _bindings_for(settings)
-        if settings.extension == "atomic":
-            self._backend: L2AgentRuntime | AtomicL1Runtime = AtomicL1Runtime(
-                config,
-                llm,
-                bindings,
-                system_prompt=resolve_system_prompt(settings, Role.CODING),
-                cancel=self.cancel,
-            )
-        else:
-            self._backend = L2AgentRuntime(
+        # Only explicit SWE keeps the fixed role workflow; everything else is pure loop.
+        if settings.extension == "swe":
+            self._backend: L2AgentRuntime | AtomicL1Runtime = L2AgentRuntime(
                 config,
                 llm,
                 bindings,
                 memory=memory,
                 cancel=self.cancel,
             )
+        else:
+            self._backend = AtomicL1Runtime(
+                config,
+                llm,
+                bindings,
+                system_prompt=resolve_system_prompt(settings, Role.CODING),
+                cancel=self.cancel,
+            )
+        self._settings = settings
 
     async def run(
         self,
@@ -106,6 +108,10 @@ class AgentRuntime:
         queues: RunMessageQueues | None = None,
     ) -> AgentState:
         if isinstance(self._backend, AtomicL1Runtime):
+            # Prompt-only verification hint — no hard review workflow.
+            self._backend.system_prompt = resolve_system_prompt(
+                self._settings, Role.CODING, test_command=test_command
+            )
             return await self._backend.run(
                 prompt,
                 workspace,

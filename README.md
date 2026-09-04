@@ -41,7 +41,7 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 
 ![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
 
-A failing unit test triggers the Planner → Coding → Execution → Repair loop. The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
+A failing unit test triggers the pure agent loop (edit → bash/tests → repair). The workspace shows the live plan, tool trace, patched files, and pytest output in one view.
 
 ### Unified diff
 
@@ -63,8 +63,9 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 | Feature | Description |
 | --- | --- |
 | Unified runtime | CLI and Web call the same Agent Runtime — no duplicate orchestration logic. |
-| ReAct + reflection loop | Custom agent loop without LangChain / LangGraph dependencies. |
-| Role-based tools | Planner, Coding, Execution, Reviewer, and Repair roles with scoped tool access. |
+| ReAct + reflection loop | Custom Pi-aligned agent loop without LangChain / LangGraph. |
+| Atomic tools (default) | Default `extension=atomic`: Read / Write / Edit / Bash pure loop — no fixed role workflow. |
+| Optional SWE harness | `--extension swe` enables Planner/Coding/Execution/Reviewer/Repair (explicit opt-in). |
 | Sandbox execution | Docker-first isolation; local process fallback for development only. |
 | Model-agnostic | OpenAI-compatible APIs — DeepSeek, GLM, Qwen, Ollama, and similar gateways. |
 | Human-in-the-loop | Dangerous operations require explicit approval unless `--yes` is set. |
@@ -82,12 +83,13 @@ Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `pyth
 ```text
 User → CLI / Web UI → FastAPI + WebSocket
                          ↓
-                   Agent Runtime
+                   Agent Runtime (atomic by default)
                          ↓
-              Planner → Coding → Execution → Reviewer
-                         ↘ Repair ↗
+              L1 pure loop: Perceive → Decide → Act → Observe
                          ↓
-              Tools → Sandbox → Workspace
+              Tools (read/write/edit/bash) → Sandbox → Workspace
+
+Optional: --extension swe → L2 SWE harness (role switching, not default)
 ```
 
 `coderking run` invokes the runtime in-process (no HTTP server required). `coderking serve` exposes the same runtime to the Web UI.
@@ -119,6 +121,7 @@ CODERKING_SANDBOX_MODE=auto
 coderking init
 coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
 coderking run "Fix failing unit tests in this repo" --workspace .
+coderking run "Fix failing tests" --workspace . --test "python -m pytest -q"
 coderking chat --workspace .
 coderking status
 coderking stop <task_id>
@@ -152,6 +155,7 @@ Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI se
 | `CODERKING_MODEL` | Model name |
 | `CODERKING_DISABLE_THINKING` | Disable reasoning-model `thinking` field (default `true`) |
 | `CODERKING_SANDBOX_MODE` | `auto`, `docker`, or `local` |
+| `CODERKING_EXTENSION` | `atomic` (default) or `swe` (optional role harness) |
 | `CODERKING_ALLOW_COMMIT` | Allow the `git_commit` tool |
 
 If the upstream API rejects the `thinking` field, the client strips it and retries once automatically.

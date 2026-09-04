@@ -41,7 +41,24 @@ def load_swe_role_prompt(role: Role) -> str:
     return _read_prompt(f"swe/{role.value}.md")
 
 
-def resolve_system_prompt(settings: Settings, role: Role) -> str:
+def append_verification_hint(prompt: str, test_command: str | None) -> str:
+    """Soft hint only — model still chooses when/how to verify via bash."""
+    cmd = (test_command or "").strip()
+    if not cmd:
+        return prompt
+    return (
+        f"{prompt.rstrip()}\n\n"
+        f"Preferred verification command for this task (run via bash when appropriate):\n"
+        f"`{cmd}`\n"
+    )
+
+
+def resolve_system_prompt(
+    settings: Settings,
+    role: Role,
+    *,
+    test_command: str | None = None,
+) -> str:
     if settings.extension == "atomic":
-        return load_core_prompt()
+        return append_verification_hint(load_core_prompt(), test_command)
     return load_swe_role_prompt(role)

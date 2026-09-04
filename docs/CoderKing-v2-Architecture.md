@@ -53,7 +53,7 @@ scripts/check_layer_deps.py
 1. **PR-1（本 Issue 首 PR）**：脚手架 + 架构文档 + 边界检查 — ✅
 2. **PR-2（#25 / #23 续）**：L0 streaming + retry + `OpenAICompatProvider` 迁入 `coderking_llm`；`src/coderking/llm` 仅 facade — ✅
 3. **PR-3（#24）**：L1 纯 Loop + Agent 类 — ✅（包内落地；`AgentRuntime` harness 仍在 facade）
-4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层 — 部分完成；`AgentRuntime` harness 仍在 facade
+4. **PR-4（#38 等）**：L2 四原子工具 + SWE extension；L3 传输层 — ✅（默认 `extension=atomic`；`extension=swe` 显式 opt-in；`AgentRuntime` facade 仅接线）
 
 ## 验收
 

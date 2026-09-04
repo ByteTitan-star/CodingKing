@@ -14,6 +14,8 @@ from coderking_agent_core.loop import (
     run_agent_loop,
 )
 from coderking_agent_core.types import AgentContext, AgentMessage, AgentTool
+from coderking_coding_agent.context.project_docs import inject_project_instructions
+from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
 from coderking_coding_agent.runtime.config import HarnessBindings, HarnessConfig
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
@@ -22,7 +24,9 @@ from coderking_coding_agent.runtime.events import (
     error_event,
     phase_change_event,
     policy_event,
+    project_instructions_event,
     sandbox_event,
+    skill_injected_event,
     status_event,
     token_event,
     tool_event,
@@ -190,6 +194,38 @@ class AtomicL1Runtime:
         ]
         context = AgentContext(system_prompt=self.system_prompt, tools=agent_tools)
 
+        # Pi-style progressive disclosure: AGENTS.md + matching skills on first turn only.
+        seed: list[dict[str, Any]] = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        if not state.messages:
+            seed, project_doc = inject_project_instructions(source, seed)
+            if project_doc is not None:
+                await on_event(
+                    project_instructions_event(
+                        project_doc.source,
+                        project_doc.content_hash,
+                        truncated=project_doc.truncated,
+                    )
+                )
+            skill_registry = SkillRegistry(source, include_cursor=False)
+            seed, injected_skills = inject_matching_skills(
+                source,
+                seed,
+                prompt,
+                registry=skill_registry,
+            )
+            for skill in injected_skills:
+                await on_event(
+                    skill_injected_event(skill.manifest.name, truncated=skill.truncated)
+                )
+        initial_messages = [
+            AgentMessage(role=str(m["role"]), content=str(m.get("content") or ""))
+            for m in seed
+            if m.get("role") != "system"
+        ]
+
         async def complete_turn(ctx: AgentContext) -> TurnResult:
             if self.cancel is not None and getattr(self.cancel, "cancelled", False):
                 self._run_cancel.abort()
@@ -248,16 +284,19 @@ class AtomicL1Runtime:
                     cancel=self._run_cancel,
                 ),
                 emit,
-                initial_messages=[AgentMessage(role="user", content=prompt)],
+                initial_messages=initial_messages,
             )
             state.messages = [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    **({"tool_calls": m.tool_calls} if m.tool_calls else {}),
-                    **({"tool_call_id": m.tool_call_id} if m.tool_call_id else {}),
-                }
-                for m in final.messages
+                {"role": "system", "content": self.system_prompt},
+                *[
+                    {
+                        "role": m.role,
+                        "content": m.content,
+                        **({"tool_calls": m.tool_calls} if m.tool_calls else {}),
+                        **({"tool_call_id": m.tool_call_id} if m.tool_call_id else {}),
+                    }
+                    for m in final.messages
+                ],
             ]
             if state.status == TaskStatus.RUNNING:
                 state.status = TaskStatus.SUCCEEDED

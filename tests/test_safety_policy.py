@@ -102,6 +102,7 @@ def _settings(workspace: Path, **kwargs: object) -> Settings:
         "sandbox_mode": "local",
         "workspace": workspace,
         "max_iterations": 20,
+        "extension": "swe",
     }
     data.update(kwargs)
     return Settings(**data)

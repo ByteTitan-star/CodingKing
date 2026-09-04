@@ -164,6 +164,7 @@ async def test_runtime_cow_promotes_on_success(tmp_path: Path) -> None:
         workspace=tmp_path,
         max_iterations=20,
         sandbox_cow=True,
+        extension="swe",
     )
     events: list = []
 

@@ -91,7 +91,7 @@ def _scripts(task_id: str) -> list[LLMResponse]:
 
 @pytest.mark.asyncio
 async def test_scripted_eval_suite_writes_reports() -> None:
-    settings = Settings(openai_api_key="x", sandbox_mode="local", max_iterations=16)
+    settings = Settings(openai_api_key="x", sandbox_mode="local", max_iterations=16, extension="swe")
     results = []
     for task, task_dir in discover_tasks(ROOT / "eval" / "tasks"):
         llm = ScriptedLLM(_scripts(task.task_id))

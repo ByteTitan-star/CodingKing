@@ -14,43 +14,98 @@ import {
 import { apiUrl, wsUrl } from "./apiBase";
 
 type AgentEvent = { type: string; payload: Record<string, unknown> };
+type Tab = "files" | "diff" | "terminal";
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: "待运行",
-  running: "运行中",
-  waiting_approval: "等待确认",
-  succeeded: "已完成",
-  failed: "失败",
-  interrupted: "已中断",
+const STATUS_META: Record<string, { label: string; pill: string }> = {
+  pending: { label: "待运行", pill: "pill-idle" },
+  running: { label: "运行中", pill: "pill-running" },
+  waiting_approval: { label: "等待确认", pill: "pill-running" },
+  succeeded: { label: "已完成", pill: "pill-done" },
+  failed: { label: "失败", pill: "pill-failed" },
+  interrupted: { label: "已中断", pill: "pill-failed" },
 };
 
-function pytestHeadline(text: string): string {
-  if (!text.trim()) return "尚未运行测试";
+function IconMark() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none">
+      <path
+        d="M12 3v18M5.6 5.6l12.8 12.8M3 12h18M5.6 18.4L18.4 5.6"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        opacity="0.9"
+      />
+    </svg>
+  );
+}
+
+function IconSend() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none">
+      <path
+        d="M12 19V5M6 11l6-6 6 6"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconStop() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+      <rect x="6" y="6" width="12" height="12" rx="2.5" />
+    </svg>
+  );
+}
+
+function IconFolder() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none">
+      <path
+        d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function pytestHeadline(text: string): { ok: boolean; text: string } {
+  if (!text.trim()) return { ok: false, text: "" };
   const passed = text.match(/(\d+) passed/);
   const failed = text.match(/(\d+) failed/);
-  const parts = [
-    passed ? `${passed[1]} passed` : null,
-    failed ? `${failed[1]} failed` : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(" / ") : text.slice(0, 400);
+  if (passed || failed) {
+    const parts = [
+      passed ? `${passed[1]} passed` : null,
+      failed ? `${failed[1]} failed` : null,
+    ].filter(Boolean);
+    return { ok: !failed, text: parts.join(" · ") };
+  }
+  return { ok: false, text: text.split("\n")[0].slice(0, 120) };
 }
 
 function DiffView({ diff }: { diff: string }) {
   if (!diff.trim()) {
-    return <pre className="p-4 text-xs text-slate-500">暂无任务级 Diff。</pre>;
+    return <div className="flex h-full items-center justify-center text-[14px]" style={{ color: "var(--text-3)" }}>还没有改动。任务完成后这里显示 Diff。</div>;
   }
   return (
-    <pre className="min-h-0 overflow-auto p-4 font-mono text-xs leading-6">
+    <pre className="code-block min-h-0 flex-1">
       {diff.split("\n").map((line, i) => {
-        const color = line.startsWith("+")
-          ? "text-emerald-300"
-          : line.startsWith("-")
-            ? "text-rose-300"
-            : line.startsWith("@@")
-              ? "text-sky-300"
-              : "text-slate-300";
+        const cls = line.startsWith("+++") || line.startsWith("---")
+          ? ""
+          : line.startsWith("+")
+            ? "diff-add"
+            : line.startsWith("-")
+              ? "diff-del"
+              : line.startsWith("@@")
+                ? "diff-hunk"
+                : "";
         return (
-          <div className={color} key={`${i}-${line.slice(0, 24)}`}>
+          <div className={cls} key={`${i}-${line.slice(0, 24)}`}>
             {line || " "}
           </div>
         );
@@ -71,11 +126,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hitl, setHitl] = useState<AgentEvent | null>(null);
-  const [steerText, setSteerText] = useState("");
-  const [followUpText, setFollowUpText] = useState("");
+  const [composerText, setComposerText] = useState("");
+  const [tab, setTab] = useState<Tab>("files");
   const wsRef = useRef<WebSocket | null>(null);
   const taskIdRef = useRef("");
   const desktopRpc = isDesktopRpc();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const terminal = useMemo(
     () =>
@@ -94,9 +150,18 @@ export default function App() {
     [events],
   );
 
+  const toolTrace = useMemo(
+    () => events.filter((e) => e.type === "tool_call" || e.type === "agent_status"),
+    [events],
+  );
+
   useEffect(() => {
     taskIdRef.current = task?.task_id ?? "";
   }, [task?.task_id]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [replies.length, toolTrace.length, hitl]);
 
   useEffect(() => {
     if (desktopRpc) {
@@ -257,62 +322,89 @@ export default function App() {
         body: JSON.stringify({ content: content.trim() }),
       });
     }
-    if (path === "steer") setSteerText("");
-    else setFollowUpText("");
+    setComposerText("");
+  }
+
+  async function onComposerSubmit(ev: FormEvent) {
+    ev.preventDefault();
+    if (!composerText.trim()) return;
+    await sendControl(running ? "steer" : "follow-up", composerText);
   }
 
   const running = task?.status === "running";
-  const waiting = task?.status === "waiting_approval";
+  const statusMeta = task ? STATUS_META[task.status] ?? { label: task.status, pill: "pill-idle" } : null;
+  const tests = pytestHeadline(task?.test_results || "");
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <div>
-          <div className="text-sm tracking-[0.18em] text-amber-200/80">CODERKING</div>
-          <div className="text-lg font-semibold">Engineering Workspace</div>
-        </div>
-        <dl className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Project</dt>
-            <dd>{repository}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Model</dt>
-            <dd>{task?.model ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Status</dt>
-            <dd>{task ? STATUS_LABEL[task.status] ?? task.status : "空闲"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Role</dt>
-            <dd>{task?.role ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase text-slate-500">Sandbox</dt>
-            <dd>
-              {task?.sandbox.backend ?? "idle"} / {task?.sandbox.status ?? "n/a"}
-            </dd>
-          </div>
-        </dl>
-      </header>
+  const header = (
+    <header
+      className="flex h-14 shrink-0 items-center justify-between px-5"
+      style={{
+        background: "var(--surface)",
+        borderBottom: "1px solid var(--border)",
+        paddingLeft: desktopRpc ? 84 : undefined,
+      }}
+    >
+      <div className="flex items-center gap-2.5" style={{ color: "var(--accent)" }}>
+        <IconMark />
+        <span className="text-[15px] font-semibold" style={{ color: "var(--text)" }}>
+          CoderKing
+        </span>
+      </div>
+      <div className="flex items-center gap-4">
+        {statusMeta ? (
+          <span className={statusMeta.pill}>
+            <span className="pill-dot" />
+            {statusMeta.label}
+          </span>
+        ) : (
+          <span className="pill pill-idle">
+            <span className="pill-dot" />
+            空闲
+          </span>
+        )}
+        <span className="text-[13.5px]" style={{ color: "var(--text-2)" }}>
+          {task?.model ?? "未连接模型"}
+        </span>
+      </div>
+    </header>
+  );
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(280px,1.1fr)_minmax(360px,1.4fr)_minmax(280px,1fr)]">
-        <section className="flex min-h-0 flex-col border-r border-white/10">
-          <h2 className="px-4 py-2 text-xs uppercase tracking-wider text-slate-500">Chat / Task</h2>
-          <form className="space-y-2 border-b border-white/10 px-4 pb-3" onSubmit={onSubmit}>
-            <label className="block text-sm" htmlFor="repo">
-              仓库路径
-              <div className="mt-1 flex gap-2">
-                <input
-                  id="repo"
-                  className="min-w-0 flex-1 rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
-                  value={repository}
-                  onChange={(e) => setRepository(e.target.value)}
-                />
+  /* ── empty state: centered hero ─────────────────────────────── */
+  if (!task) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {header}
+        <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
+          <div className="w-full max-w-2xl">
+            <h1 className="text-center text-[30px] font-semibold leading-tight">
+              有什么工程任务要处理？
+            </h1>
+            <p className="mt-2 text-center text-[15px]" style={{ color: "var(--text-2)" }}>
+              描述任务，代理会自主浏览代码、修改、运行测试直到验证通过。
+            </p>
+            <form className="card mt-8 p-4" style={{ boxShadow: "var(--shadow-md)" }} onSubmit={onSubmit}>
+              <textarea
+                id="prompt"
+                className="w-full resize-none bg-transparent px-2 py-1 text-[15px] leading-relaxed"
+                style={{ border: "none", outline: "none", minHeight: 96 }}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+              <div className="mt-3 flex items-center gap-3 border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                <label className="flex min-w-0 flex-1 items-center gap-2 text-[13.5px]" style={{ color: "var(--text-2)" }}>
+                  <IconFolder />
+                  <span className="sr-only">仓库路径</span>
+                  <input
+                    id="repo"
+                    className="min-w-0 flex-1 bg-transparent text-[13.5px]"
+                    style={{ border: "none", outline: "none", color: "var(--text)" }}
+                    value={repository}
+                    onChange={(e) => setRepository(e.target.value)}
+                  />
+                </label>
                 {desktopRpc ? (
                   <button
-                    className="min-h-11 shrink-0 cursor-pointer rounded-md border border-white/20 px-3"
+                    className="btn btn-ghost"
                     onClick={() => {
                       void pickDirectory().then((dir) => {
                         if (dir) setRepository(dir);
@@ -323,162 +415,187 @@ export default function App() {
                     浏览
                   </button>
                 ) : null}
+                <button className="btn btn-primary" disabled={busy || !prompt.trim()} type="submit">
+                  {busy ? "启动中…" : "运行任务"}
+                </button>
               </div>
-            </label>
-            <label className="block text-sm" htmlFor="prompt">
-              任务
-              <textarea
-                id="prompt"
-                className="mt-1 min-h-24 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-              />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="min-h-11 cursor-pointer rounded-md bg-amber-300 px-4 font-medium text-black disabled:opacity-50"
-                disabled={busy}
-                type="submit"
-              >
-                {busy ? "启动中…" : "新建任务"}
-              </button>
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-white/20 px-3"
-                disabled={!task}
-                onClick={() => void act("interrupt")}
-                type="button"
-              >
-                Stop Task
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-emerald-400/40 px-3 disabled:opacity-40"
-                disabled={!waiting}
-                onClick={() => void act("approve")}
-                type="button"
-              >
-                Approve
-              </button>
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-rose-400/40 px-3 disabled:opacity-40"
-                disabled={!waiting}
-                onClick={() => void act("reject")}
-                type="button"
-              >
-                Reject
-              </button>
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-amber-200/40 px-3"
-                disabled={!task}
-                onClick={() => void act("accept")}
-                type="button"
-              >
-                Accept Changes
-              </button>
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-white/20 px-3"
-                disabled={!task}
-                onClick={() => void act("rollback")}
-                type="button"
-              >
-                Rollback Changes
-              </button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="block text-sm" htmlFor="steer">
-                Steer（运行中转向）
-                <textarea
-                  id="steer"
-                  className="mt-1 min-h-16 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
-                  disabled={!task || !running}
-                  placeholder="停止当前方向，改为…"
-                  value={steerText}
-                  onChange={(e) => setSteerText(e.target.value)}
-                />
-              </label>
-              <label className="block text-sm" htmlFor="follow-up">
-                Follow-up（完成后跟进）
-                <textarea
-                  id="follow-up"
-                  className="mt-1 min-h-16 w-full rounded-md border border-white/10 bg-[#12151c] px-3 py-2"
-                  disabled={!task}
-                  placeholder="任务完成后自动执行…"
-                  value={followUpText}
-                  onChange={(e) => setFollowUpText(e.target.value)}
-                />
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-sky-400/40 px-3 disabled:opacity-40"
-                disabled={!task || !running || !steerText.trim()}
-                onClick={() => void sendControl("steer", steerText)}
-                type="button"
-              >
-                Send Steer
-              </button>
-              <button
-                className="min-h-11 cursor-pointer rounded-md border border-violet-400/40 px-3 disabled:opacity-40"
-                disabled={!task || !followUpText.trim()}
-                onClick={() => void sendControl("follow-up", followUpText)}
-                type="button"
-              >
-                Queue Follow-up
-              </button>
-            </div>
-            {hitl ? (
-              <p className="text-sm text-amber-200">
-                HITL: {String(hitl.payload.tool)} — {JSON.stringify(hitl.payload.arguments).slice(0, 180)}
+            </form>
+            {error ? (
+              <p className="mt-4 text-center text-[14px]" style={{ color: "var(--err)" }}>
+                {error}
               </p>
             ) : null}
-            {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-          </form>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-            <h3 className="text-xs uppercase tracking-wider text-slate-500">Agent 回复</h3>
-            <ul className="mt-2 space-y-2 text-sm text-slate-200">
-              {replies.length === 0 ? <li className="text-slate-500">等待 Agent 完成事件。</li> : null}
-              {replies.map((text) => (
-                <li className="rounded border border-white/10 p-2" key={text.slice(0, 40)}>
-                  {text.slice(0, 800)}
-                </li>
-              ))}
-            </ul>
-            <h3 className="mt-6 text-xs uppercase tracking-wider text-slate-500">Plan</h3>
-            <ul className="mt-2 space-y-1 text-sm">
-              {(task?.plan ?? []).length === 0 ? <li className="text-slate-500">尚无计划</li> : null}
-              {(task?.plan ?? []).map((item) => (
-                <li key={item.title}>
-                  {item.done ? "✓" : "○"} {item.title}
-                </li>
-              ))}
-            </ul>
-            <h3 className="mt-6 text-xs uppercase tracking-wider text-slate-500">Agent Activity</h3>
-            <ol className="mt-2 space-y-2 font-mono text-xs text-slate-300">
-              {events
-                .filter((e) => e.type === "agent_status" || e.type === "tool_call")
-                .map((event, i) => (
-                  <li key={`${event.type}-${i}`}>
-                    {event.type === "agent_status"
-                      ? String(event.payload.role)
-                      : `Tool: ${String(event.payload.tool)}`}
-                  </li>
-                ))}
-            </ol>
           </div>
+        </main>
+      </div>
+    );
+  }
+
+  /* ── workspace state ────────────────────────────────────────── */
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {header}
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_minmax(400px,42%)]">
+        {/* conversation */}
+        <section className="flex min-h-0 flex-col" style={{ borderRight: "1px solid var(--border)" }}>
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="mx-auto max-w-2xl">
+              <div className="chat-role">任务</div>
+              <p className="text-[15px] leading-relaxed">{task.prompt}</p>
+
+              {toolTrace.length > 0 ? (
+                <div className="mt-5">
+                  <div className="chat-role">代理过程</div>
+                  <div className="rounded-xl px-1 py-0.5">
+                    {toolTrace.map((event, i) => (
+                      <div className="tool-line" key={`${event.type}-${i}`}>
+                        <span
+                          className={`tool-mark ${
+                            event.payload.status === "ok"
+                              ? "ok"
+                              : event.payload.status === "error"
+                                ? "error"
+                                : ""
+                          }`}
+                        />
+                        <span className="font-medium">{String(event.payload.tool ?? event.payload.role ?? "")}</span>
+                        {event.payload.arguments ? (
+                          <span className="truncate" style={{ color: "var(--text-3)" }}>
+                            {JSON.stringify(event.payload.arguments).slice(0, 90)}
+                          </span>
+                        ) : null}
+                        {event.payload.preview ? (
+                          <span className="truncate" style={{ color: "var(--text-3)" }}>
+                            {String(event.payload.preview).slice(0, 70)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {hitl ? (
+                <div className="card mt-5 p-4" style={{ borderLeft: "3px solid var(--accent)" }}>
+                  <div className="text-[14px] font-semibold">需要确认</div>
+                  <p className="mt-1 text-[14px]" style={{ color: "var(--text-2)" }}>
+                    {String(hitl.payload.tool)} — {JSON.stringify(hitl.payload.arguments).slice(0, 160)}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button className="btn btn-primary" onClick={() => void act("approve")} type="button">
+                      允许
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => void act("reject")} type="button">
+                      拒绝
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {replies.map((text) => (
+                <div className="mt-5" key={text.slice(0, 40)}>
+                  <div className="chat-role">CoderKing</div>
+                  <div className="card px-4 py-3 text-[14.5px] leading-relaxed">{text.slice(0, 800)}</div>
+                </div>
+              ))}
+
+              {task.status === "succeeded" || task.status === "failed" ? (
+                <div className="card mt-5 flex items-center justify-between p-4">
+                  <div className="text-[14px]" style={{ color: "var(--text-2)" }}>
+                    {task.status === "succeeded" ? "任务完成，改动已就绪。" : "任务失败。"}
+                    {tests.text ? (
+                      <span style={{ color: tests.ok ? "var(--ok)" : "var(--err)" }}> 测试：{tests.text}</span>
+                    ) : null}
+                    <span style={{ color: "var(--text-3)" }}>
+                      {" "}
+                      · {task.changed_files.length} 个文件 · {task.tokens.prompt} → {task.tokens.completion} tokens
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="btn btn-primary" onClick={() => void act("accept")} type="button">
+                      采纳
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => void act("rollback")} type="button">
+                      回滚
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {error ? (
+                <p className="mt-4 text-[14px]" style={{ color: "var(--err)" }}>
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {/* composer */}
+          <form
+            className="shrink-0 px-6 py-4"
+            style={{ background: "var(--bg)", borderTop: "1px solid var(--border)" }}
+            onSubmit={onComposerSubmit}
+          >
+            <div className="card mx-auto flex max-w-2xl items-end gap-2 p-3">
+              <textarea
+                id="composer"
+                className="min-w-0 flex-1 resize-none bg-transparent px-1 text-[14.5px] leading-relaxed"
+                style={{ border: "none", outline: "none", minHeight: 40 }}
+                placeholder={running ? "运行中，输入内容可改变方向…" : "继续跟进这个任务…"}
+                value={composerText}
+                onChange={(e) => setComposerText(e.target.value)}
+              />
+              {running ? (
+                <button className="btn btn-secondary" onClick={() => void act("interrupt")} type="button">
+                  <IconStop /> 停止
+                </button>
+              ) : null}
+              <button
+                className="btn btn-primary"
+                disabled={!composerText.trim()}
+                type="submit"
+              >
+                <IconSend /> {running ? "发送" : "跟进"}
+              </button>
+            </div>
+          </form>
         </section>
 
-        <section className="flex min-h-0 flex-col border-r border-white/10">
-          <h2 className="px-4 py-2 text-xs uppercase tracking-wider text-slate-500">Code Workspace</h2>
-          <div className="grid min-h-0 flex-1 grid-rows-2">
-            <div className="grid min-h-0 grid-cols-[220px_1fr] border-b border-white/10">
-              <ul className="min-h-0 overflow-y-auto px-2 py-2 text-xs">
+        {/* side panel */}
+        <section className="flex min-h-0 flex-col" style={{ background: "var(--surface)" }}>
+          <div className="flex shrink-0 items-center gap-5 px-5" style={{ borderBottom: "1px solid var(--border)" }}>
+            {(["files", "diff", "terminal"] as Tab[]).map((t) => (
+              <button
+                className={`tab ${tab === t ? "tab-active" : ""}`}
+                key={t}
+                onClick={() => setTab(t)}
+                type="button"
+              >
+                {t === "files" ? "文件" : t === "diff" ? "Diff" : "终端"}
+              </button>
+            ))}
+            <span className="ml-auto text-[13px]" style={{ color: "var(--text-3)" }}>
+              {files.length ? `${files.length} 个文件` : ""}
+            </span>
+          </div>
+
+          {tab === "files" ? (
+            <div className="grid min-h-0 flex-1 grid-cols-[200px_1fr]">
+              <ul
+                className="min-h-0 overflow-y-auto py-2 text-[13px]"
+                style={{ borderRight: "1px solid var(--border)" }}
+              >
                 {files.map((file) => (
                   <li key={file}>
                     <button
-                      className={`min-h-11 w-full cursor-pointer rounded px-2 text-left ${
-                        file === activeFile ? "bg-white/10" : ""
+                      className={`w-full cursor-pointer truncate px-3 py-1.5 text-left ${
+                        file === activeFile ? "font-medium" : ""
                       }`}
+                      style={
+                        file === activeFile
+                          ? { background: "var(--accent-soft)", color: "var(--accent)" }
+                          : { color: "var(--text-2)" }
+                      }
                       onClick={() => setActiveFile(file)}
                       type="button"
                     >
@@ -487,39 +604,42 @@ export default function App() {
                     </button>
                   </li>
                 ))}
+                {files.length === 0 ? (
+                  <li className="px-3 py-1.5" style={{ color: "var(--text-3)" }}>
+                    暂无文件
+                  </li>
+                ) : null}
               </ul>
-              <pre className="min-h-0 overflow-auto p-4 font-mono text-xs leading-6 text-slate-200">
-                {fileContent || "选择文件查看内容。"}
+              <pre className="code-block min-h-0 flex-1 rounded-none border-none">
+                {fileContent || "选择左侧文件查看内容。"}
               </pre>
             </div>
-            <DiffView diff={diff} />
-          </div>
-        </section>
+          ) : null}
 
-        <section className="flex min-h-0 flex-col">
-          <h2 className="px-4 py-2 text-xs uppercase tracking-wider text-slate-500">Runtime</h2>
-          <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
-            <div className="rounded-md border border-white/10 bg-[#12151c] p-3 text-sm">
-              Role: {task?.role ?? "—"}
-              <br />
-              Iteration: {task?.iteration ?? 0}
-              <br />
-              Sandbox: {task?.sandbox.backend ?? "idle"} / {task?.sandbox.status ?? "n/a"}
-              <br />
-              Model: {task?.model ?? "—"}
-              <br />
-              Tokens: {task ? `${task.tokens.prompt} / ${task.tokens.completion}` : "0 / 0"}
+          {tab === "diff" ? (
+            <div className="flex min-h-0 flex-1 flex-col p-4">
+              <DiffView diff={diff} />
             </div>
-            <h3 className="mt-4 text-xs uppercase tracking-wider text-slate-500">Terminal</h3>
-            <pre className="mt-2 min-h-40 overflow-auto rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-6">
-              {terminal || "等待 Sandbox 输出…"}
-            </pre>
-            <h3 className="mt-4 text-xs uppercase tracking-wider text-slate-500">Test Result</h3>
-            <pre className="mt-2 overflow-auto font-mono text-xs">
-              {pytestHeadline(task?.test_results || "")}
-              {task?.test_results ? `\n\n${task.test_results}` : ""}
-            </pre>
-          </div>
+          ) : null}
+
+          {tab === "terminal" ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+              {tests.text ? (
+                <div
+                  className="pill"
+                  style={{
+                    background: tests.ok ? "var(--ok-soft)" : "var(--err-soft)",
+                    color: tests.ok ? "var(--ok)" : "var(--err)",
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  <span className="pill-dot" style={{ background: "currentColor" }} />
+                  测试 {tests.text}
+                </div>
+              ) : null}
+              <pre className="code-block min-h-0 flex-1">{terminal || "等待沙箱输出…"}</pre>
+            </div>
+          ) : null}
         </section>
       </div>
     </div>

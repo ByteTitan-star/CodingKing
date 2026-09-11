@@ -62,7 +62,9 @@ function createWindow() {
     height: 840,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: "#020617",
+    backgroundColor: "#FAF9F5",
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 20 },
     title: "CoderKing",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),

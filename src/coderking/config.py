@@ -131,6 +131,9 @@ def load_settings(workspace: Path | None = None, **overrides: object) -> Setting
     )
     load_dotenv(root / ".env")
     load_dotenv(Path.cwd() / ".env")
+    # Global fallback so an installed CLI works outside any project checkout.
+    # Loaded last: workspace/cwd .env and real env vars keep precedence.
+    load_dotenv(Path.home() / ".coderking" / ".env")
     data: dict[str, Any] = {"workspace": root}
     data.update(read_yaml_config(root))
     for field, env_name in ENV_MAP.items():

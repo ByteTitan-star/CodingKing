@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 import uvicorn
 from rich.live import Live
+from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
@@ -410,7 +411,9 @@ async def _run_task(
     reply = _last_assistant_text(state.messages)
     if reply:
         console.print()
-        console.print(reply)
+        # Markdown renderer: formats headings/lists/code blocks properly and
+        # never interprets model output as rich markup.
+        console.print(Markdown(reply))
         console.print()
     print_state(state)
     return state

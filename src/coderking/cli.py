@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import typer
 import uvicorn
+from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.table import Table
@@ -29,11 +31,12 @@ from coderking.registry import (
 from coderking.runtime.cancel import CancellationToken
 from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
-from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus
+from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.local import LocalProcessSandbox
 from coderking.ui.splash import play_splash
 from coderking.ui.theme import (
     BRAND_MARK,
+    THEME,
     console,
     print_banner,
     print_run_event,
@@ -301,6 +304,9 @@ def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: st
             state = None
             console.print(f"[ck.dim]new session {session_id}[/ck.dim]")
             continue
+        if prompt == "/trace":
+            _print_tool_trace(state)
+            continue
         state = asyncio.run(
             _run_task(prompt, settings, auto_approve=yes, resume=state, test_command=test)
         )
@@ -320,6 +326,16 @@ def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: st
                 "iteration": state.iteration,
                 "token_input": state.token_input,
                 "token_output": state.token_output,
+                "tool_history": [
+                    {
+                        "name": r.name,
+                        "arguments": r.arguments,
+                        "output": r.output,
+                        "ok": r.ok,
+                        "ts": r.ts,
+                    }
+                    for r in state.tool_history
+                ],
             },
             session_id=session_id,
         )
@@ -330,6 +346,17 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
     if not raw:
         return None
     plan = [PlanItem(title=p["title"], done=p.get("done", False)) for p in raw.get("plan") or []]
+    tool_history = [
+        ToolRecord(
+            name=str(t.get("name") or "?"),
+            arguments=dict(t.get("arguments") or {}),
+            output=str(t.get("output") or ""),
+            ok=bool(t.get("ok")),
+            ts=str(t.get("ts") or ""),
+        )
+        for t in raw.get("tool_history") or []
+        if isinstance(t, dict)
+    ]
     state = AgentState(
         task=str(raw.get("prompt") or ""),
         repository=str(workspace),
@@ -345,6 +372,7 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         token_output=int(raw.get("token_output") or 0),
         last_test_ok=raw.get("last_test_ok"),
         snapshot=dict(raw.get("snapshot") or {}),
+        tool_history=tool_history,
     )
     if not state.task_id:
         return None
@@ -364,13 +392,16 @@ async def _run_task(
     tick = [0]
 
     def render() -> Text:
+        # Compact Claude-Code-style status: spinner + the current action only.
+        # The full trace stays available via /trace after the run.
         head = Text.assemble(
             (f"{BRAND_MARK} ", "ck.brand"),
             (spinner_label(tick[0]), "ck.dim"),
-            ("\n", ""),
         )
-        body = Text("\n").join(lines[-12:])
-        return Text.assemble(head, body)
+        if lines:
+            head.append(Text("\n"))
+            head.append(lines[-1])
+        return head
 
     async def on_event(event: AgentEvent) -> None:
         payload = event.payload
@@ -408,15 +439,48 @@ async def _run_task(
             test_command=test_command,
             state=resume,
         )
+    collapsed = _summarize_tools(state.tool_history)
+    if collapsed:
+        console.print(f"[ck.faint]{collapsed}[/ck.faint]")
     reply = _last_assistant_text(state.messages)
     if reply:
         console.print()
         # Markdown renderer: formats headings/lists/code blocks properly and
-        # never interprets model output as rich markup.
-        console.print(Markdown(reply))
+        # never interprets model output as rich markup. Capped at a readable
+        # width so wide terminals don't stretch paragraphs edge to edge.
+        reply_console = Console(theme=THEME, width=min(console.width, 100))
+        reply_console.print(Markdown(reply))
         console.print()
     print_state(state)
     return state
+
+
+def _summarize_tools(tool_history: list) -> str:
+    """One collapsed line for the whole run's tool activity."""
+    if not tool_history:
+        return ""
+    counts: dict[str, int] = {}
+    for record in tool_history:
+        counts[record.name] = counts.get(record.name, 0) + 1
+    parts = [name if n == 1 else f"{name} ×{n}" for name, n in counts.items()]
+    return f"⏺ 工具 ×{len(tool_history)}：{' · '.join(parts)}（/trace 展开）"
+
+
+def _print_tool_trace(state) -> None:
+    """Expand the last run's tool trace (/trace command)."""
+    history = getattr(state, "tool_history", None) or []
+    if not history:
+        console.print("[ck.dim]当前会话还没有工具调用记录[/ck.dim]")
+        return
+    console.print(f"[ck.brand]{BRAND_MARK} 工具轨迹[/ck.brand]（最近 {len(history)} 次）")
+    for record in history:
+        mark = "[ck.ok]✓[/ck.ok]" if record.ok else "[ck.err]✗[/ck.err]"
+        args = json.dumps(record.arguments, ensure_ascii=False)[:80]
+        console.print(f"  ⏺ {record.name} {args} {mark}")
+        output = (record.output or "").strip()
+        if output:
+            for line in output.splitlines()[:3]:
+                console.print(f"      [ck.faint]{line[:88]}[/ck.faint]")
 
 
 def _last_assistant_text(messages: list[dict]) -> str:

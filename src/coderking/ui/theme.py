@@ -94,7 +94,7 @@ def print_banner(
     console.print(f"  [ck.dim]模型[/ck.dim]    {model} · 沙箱 {sandbox}")
     console.print()
     if interactive:
-        hint = "  输入任务开始 · /new 新会话 · /exit 退出 · Ctrl+C 中断运行"
+        hint = "  输入任务开始 · /new 新会话 · /trace 工具轨迹 · /exit 退出"
         console.print(f"[ck.faint]{hint}[/ck.faint]")
     console.print()
 

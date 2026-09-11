@@ -1,0 +1,32 @@
+{
+  "name": "codeking",
+  "version": "1.0.9",
+  "description": "CodeKing — autonomous coding agent CLI (read/write/edit/bash, sandbox, verify-until-pass)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ByteTitan-star/CodingKing"
+  },
+  "bin": {
+    "codeking": "bin/codeking.js",
+    "coderking": "bin/codeking.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "coding-agent",
+    "cli",
+    "ai",
+    "llm",
+    "sandbox"
+  ]
+}

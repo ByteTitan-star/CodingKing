@@ -5,9 +5,9 @@ from pathlib import Path
 
 import typer
 import uvicorn
-from rich.console import Console
 from rich.live import Live
 from rich.table import Table
+from rich.text import Text
 
 from coderking import __version__
 from coderking.config import config_yaml_path, load_settings, write_yaml_config
@@ -20,11 +20,19 @@ from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus
 from coderking.sandbox.local import LocalProcessSandbox
+from coderking.ui.splash import play_splash
+from coderking.ui.theme import (
+    BRAND_MARK,
+    console,
+    print_banner,
+    print_run_event,
+    print_state,
+    spinner_label,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="CoderKing coding agent CLI")
 config_app = typer.Typer(no_args_is_help=True, help="Configure models and runtime")
 app.add_typer(config_app, name="config")
-console = Console()
 
 
 def _workspace(path: Path | None) -> Path:
@@ -124,6 +132,12 @@ def run(
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
     settings = load_settings(workspace=_workspace(workspace), allow_commit=commit)
+    print_banner(
+        workspace=settings.resolved_workspace(),
+        model=settings.model,
+        sandbox=settings.sandbox_mode,
+        interactive=False,
+    )
     asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None, test_command=test))
 
 
@@ -141,12 +155,20 @@ def chat(
     """Interactive session that continues on the same workspace."""
     root = _workspace(workspace)
     settings = load_settings(workspace=root, allow_commit=commit)
-    console.print("CoderKing chat. Empty line or /exit to quit.")
+    played = play_splash(console)
+    print_banner(
+        workspace=root,
+        model=settings.model,
+        sandbox=settings.sandbox_mode,
+        interactive=True,
+        show_brand=not played,
+    )
     state = _state_from_session(root)
     while True:
         try:
-            prompt = console.input("> ").strip()
+            prompt = console.input("[ck.accent]❯ [/]").strip()
         except (EOFError, KeyboardInterrupt):
+            console.print()
             break
         if not prompt or prompt in {"/exit", "/quit"}:
             break
@@ -208,20 +230,34 @@ async def _run_task(
 ) -> AgentState:
     cancel = CancellationToken()
     runtime = AgentRuntime(settings, OpenAICompatProvider(settings), cancel=cancel)
-    lines: list[str] = []
+    lines: list[Text] = []
+    tick = [0]
+
+    def render() -> Text:
+        head = Text.assemble(
+            (f"{BRAND_MARK} ", "ck.brand"),
+            (spinner_label(tick[0]), "ck.dim"),
+            ("\n", ""),
+        )
+        body = Text("\n").join(lines[-12:])
+        return Text.assemble(head, body)
 
     async def on_event(event: AgentEvent) -> None:
         payload = event.payload
-        if event.type == "agent_status":
-            lines.append(f"[status] {payload.get('role')} / {payload.get('status')}")
-        elif event.type == "tool_call":
-            lines.append(f"[tool] {payload.get('tool')} {payload.get('status')}")
+        if event.type == "tool_call":
+            markup = print_run_event({"type": "tool_call", **payload})
+            if markup:
+                lines.append(Text.from_markup(markup))
         elif event.type == "terminal":
-            lines.append(str(payload.get("text", ""))[:400])
-        elif event.type == "done":
-            lines.append(f"[done] ok={payload.get('ok')} {payload.get('summary')}")
+            markup = print_run_event({"type": "terminal", **payload})
+            if markup:
+                lines.append(Text.from_markup(markup))
+        elif event.type == "approval_required":
+            markup = print_run_event({"type": "approval_required", **payload})
+            lines.append(Text.from_markup(markup))
         elif event.type == "error":
-            lines.append(f"[error] {payload.get('message')}")
+            msg = str(payload.get("message", ""))[:100]
+            lines.append(Text.from_markup(f"[ck.err]⏺ 错误[/ck.err] [ck.faint]{msg}[/ck.faint]"))
 
     async def approve(tool: str, reason: str, arguments: dict) -> bool:
         return typer.confirm(f"Approve {tool} ({reason})? {arguments}", default=False)
@@ -230,7 +266,8 @@ async def _run_task(
 
         async def wrapped(event: AgentEvent) -> None:
             await on_event(event)
-            live.update("\n".join(lines[-30:]))
+            tick[0] += 1
+            live.update(render())
 
         state = await runtime.run(
             prompt,
@@ -241,7 +278,7 @@ async def _run_task(
             test_command=test_command,
             state=resume,
         )
-    _print_state(state)
+    print_state(state)
     return state
 
 
@@ -252,20 +289,14 @@ def status(
     """Show the current task record."""
     record = load_current(_workspace(workspace))
     if record is None:
-        console.print("no current task")
+        console.print("[ck.dim]暂无任务记录[/ck.dim]")
         raise typer.Exit(0)
-    console.print(
-        {
-            "Task ID": record.task_id,
-            "Task": record.prompt,
-            "Status": record.status,
-            "Current Role": record.role,
-            "Iteration": record.iteration,
-            "Changed Files": record.changed_files,
-            "Tests": record.test_results[:1000] or "(none)",
-            "Token Usage": f"{record.token_input} / {record.token_output}",
-        }
-    )
+    console.print(f"[ck.brand]{BRAND_MARK} 当前任务[/ck.brand]")
+    console.print(f"  [ck.dim]ID[/ck.dim]      {record.task_id}")
+    console.print(f"  [ck.dim]任务[/ck.dim]    {record.prompt[:80]}")
+    console.print(f"  [ck.dim]状态[/ck.dim]    {record.status}")
+    console.print(f"  [ck.dim]文件[/ck.dim]    {len(record.changed_files)} 个变更")
+    console.print(f"  [ck.dim]用量[/ck.dim]    {record.token_input} → {record.token_output} tokens")
 
 
 @app.command()
@@ -395,16 +426,17 @@ def config_model(
 
 
 def _print_state(state: AgentState) -> None:
-    console.print(
-        {
-            "task_id": state.task_id,
-            "status": state.status.value,
-            "role": state.role.value,
-            "iteration": state.iteration,
-            "changed_files": state.changed_files,
-        }
-    )
+    print_state(state)
+
+
+def main() -> None:
+    """Entry point: bare `coderking` / `codeking` drops straight into chat."""
+    import sys
+
+    if len(sys.argv) == 1:
+        sys.argv = [sys.argv[0], "chat"]
+    app()
 
 
 if __name__ == "__main__":
-    app()
+    main()

@@ -39,7 +39,8 @@ dev = [
 ]
 
 [project.scripts]
-coderking = "coderking.cli:app"
+coderking = "coderking.cli:main"
+codeking = "coderking.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ByteTitan-star/CodingKing"

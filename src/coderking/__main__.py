@@ -1,4 +1,4 @@
-from coderking.cli import app
+from coderking.cli import main
 
 if __name__ == "__main__":
-    app()
+    main()

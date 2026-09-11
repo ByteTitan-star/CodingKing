@@ -43,6 +43,27 @@ def test_recover_truncates_corrupt_tail(tmp_path: Path) -> None:
     assert "{{not json" not in repo2.jsonl_path.read_text(encoding="utf-8")
 
 
+def test_recover_keeps_multibyte_valid_lines(tmp_path: Path) -> None:
+    """Regression: char-vs-byte offset mixup truncated valid CJK tails."""
+    repo = SessionRepo(tmp_path)
+    repo.append(
+        "message", {"session_snapshot": {"prompt": "修复仓库里失败的测试", "status": "failed"}}
+    )
+    raw_before = repo.jsonl_path.read_bytes()
+
+    # Reopening must not damage the file (old bug: char count used as byte offset).
+    repo2 = SessionRepo(tmp_path)
+    assert repo2.jsonl_path.read_bytes() == raw_before
+    state = repo2.materialize_session_state()
+    assert state.get("prompt") == "修复仓库里失败的测试"
+
+    # A genuinely corrupt tail after multibyte content is still removed.
+    with repo2.jsonl_path.open("ab") as handle:
+        handle.write(b'{"id": "broken')
+    repo3 = SessionRepo(tmp_path)
+    assert repo3.jsonl_path.read_bytes() == raw_before
+
+
 def test_walk_10k_nodes_fast(tmp_path: Path) -> None:
     repo = SessionRepo(tmp_path)
     parent_id = repo.head_id

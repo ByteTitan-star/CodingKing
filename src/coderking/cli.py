@@ -407,8 +407,24 @@ async def _run_task(
             test_command=test_command,
             state=resume,
         )
+    reply = _last_assistant_text(state.messages)
+    if reply:
+        console.print()
+        console.print(reply)
+        console.print()
     print_state(state)
     return state
+
+
+def _last_assistant_text(messages: list[dict]) -> str:
+    """Final assistant reply of a run — the content users actually want to see."""
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
 
 
 @app.command()

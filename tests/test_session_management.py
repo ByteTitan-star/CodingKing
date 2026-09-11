@@ -94,3 +94,17 @@ def test_list_sessions_tolerates_corrupt_tail(tmp_path: Path) -> None:
     metas = list_sessions(tmp_path)
     assert len(metas) == 1
     assert metas[0].prompt == "正常会话"
+
+
+def test_last_assistant_text_finds_final_reply() -> None:
+    from coderking.cli import _last_assistant_text
+
+    messages = [
+        {"role": "user", "content": "您好"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "exit=0"},
+        {"role": "assistant", "content": "你好！有什么可以帮你？"},
+    ]
+    assert _last_assistant_text(messages) == "你好！有什么可以帮你？"
+    assert _last_assistant_text([]) == ""
+    assert _last_assistant_text([{"role": "user", "content": "x"}]) == ""

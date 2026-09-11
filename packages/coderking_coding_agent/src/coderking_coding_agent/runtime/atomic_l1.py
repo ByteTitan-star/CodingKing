@@ -163,6 +163,7 @@ class AtomicL1Runtime:
         workspace = workspace.resolve()
         source = workspace
         state = state or AgentState(task=prompt, repository=str(source))
+        state.task = prompt  # resumed sessions must reflect the current prompt
         state.status = TaskStatus.RUNNING
         state.role = Role.CODING
         cow: CowWorkspace | None = None

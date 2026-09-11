@@ -14,7 +14,17 @@ from coderking.config import config_yaml_path, load_settings, write_yaml_config
 from coderking.evalkit.loader import discover_tasks
 from coderking.evalkit.runner import run_suite, summarize, write_reports
 from coderking.llm.openai_compat import OpenAICompatProvider
-from coderking.registry import load_current, load_session, request_cancel, save_session
+from coderking.registry import (
+    current_session_id,
+    ensure_session,
+    list_sessions,
+    load_current,
+    load_session,
+    new_session_id,
+    request_cancel,
+    save_session,
+    set_current_session_id,
+)
 from coderking.runtime.cancel import CancellationToken
 from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
@@ -151,10 +161,28 @@ def chat(
         "--test",
         help="Preferred verification command (soft prompt hint for bash)",
     ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        "-r",
+        help="Pick a past session to resume (interactive picker)",
+    ),
+    resume_index: int | None = typer.Option(
+        None,
+        "--resume-index",
+        help="Resume the Nth session from `codeking sessions` directly",
+    ),
 ) -> None:
     """Interactive session that continues on the same workspace."""
     root = _workspace(workspace)
     settings = load_settings(workspace=root, allow_commit=commit)
+    session_id = current_session_id(root)
+    if resume or resume_index is not None:
+        picked = _resolve_resume(root, resume_index)
+        if picked is None:
+            return
+        session_id = picked
+        set_current_session_id(root, session_id)
     played = play_splash(console)
     print_banner(
         workspace=root,
@@ -163,7 +191,101 @@ def chat(
         interactive=True,
         show_brand=not played,
     )
-    state = _state_from_session(root)
+    _chat_loop(root, settings, yes, test, session_id)
+
+
+@app.command()
+def new(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    yes: bool = typer.Option(False, "--yes"),
+    commit: bool = typer.Option(False, "--commit"),
+    test: str | None = typer.Option(
+        None,
+        "--test",
+        help="Preferred verification command (soft prompt hint for bash)",
+    ),
+) -> None:
+    """Start a fresh session on the workspace (keeps old ones)."""
+    root = _workspace(workspace)
+    settings = load_settings(workspace=root, allow_commit=commit)
+    session_id = new_session_id(root)
+    set_current_session_id(root, session_id)
+    played = play_splash(console)
+    print_banner(
+        workspace=root,
+        model=settings.model,
+        sandbox=settings.sandbox_mode,
+        interactive=True,
+        show_brand=not played,
+    )
+    console.print(f"[ck.dim]new session {session_id}[/ck.dim]")
+    _chat_loop(root, settings, yes, test, session_id)
+
+
+@app.command()
+def sessions(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List saved sessions for the workspace."""
+    root = _workspace(workspace)
+    items = list_sessions(root)
+    if not items:
+        console.print("[ck.dim]no saved sessions yet[/ck.dim]")
+        return
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("#", style="ck.dim", justify="right")
+    table.add_column("session", style="ck.accent")
+    table.add_column("updated", style="ck.dim")
+    table.add_column("task", overflow="ellipsis", max_width=44)
+    table.add_column("msgs", justify="right", style="ck.dim")
+    table.add_column("tokens", justify="right", style="ck.dim")
+    current = current_session_id(root)
+    for i, meta in enumerate(items, 1):
+        marker = "*" if meta.session_id == current else " "
+        table.add_row(
+            str(i),
+            f"{marker}{meta.session_id}",
+            meta.updated_at.replace("T", " ")[:19],
+            meta.prompt[:44] or "—",
+            str(meta.nodes),
+            f"{meta.token_input}/{meta.token_output}",
+        )
+    console.print(table)
+    hint = "  codeking -r <n> 恢复指定会话 · codeking -r 交互选择 · codeking new 新会话 · * = 当前"
+    console.print(f"[ck.faint]{hint}[/ck.faint]")
+
+
+def _resolve_resume(root: Path, index: int | None) -> str | None:
+    """Return the session_id to resume, or None to cancel."""
+    items = list_sessions(root)
+    if not items:
+        console.print("[ck.dim]no saved sessions yet — starting fresh instead[/ck.dim]")
+        return None
+    if index is not None:
+        if not 1 <= index <= len(items):
+            console.print(f"[ck.err]invalid session index {index}[/ck.err]")
+            return None
+        return items[index - 1].session_id
+    console.print(f"[ck.brand]{BRAND_MARK} resume session[/ck.brand]")
+    for i, meta in enumerate(items, 1):
+        console.print(
+            f"  [ck.dim]{i}.[/ck.dim] {meta.session_id}  [ck.dim]{meta.updated_at[:19]}[/ck.dim]"
+            f"  {meta.prompt[:40] or '—'}"  # noqa: E501
+        )
+    try:
+        choice = console.input("[ck.accent]№ [/]").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+    if not choice or not choice.isdigit() or not 1 <= int(choice) <= len(items):
+        console.print("[ck.dim]cancelled[/ck.dim]")
+        return None
+    return items[int(choice) - 1].session_id
+
+
+def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: str) -> None:
+    session_id = ensure_session(root, session_id)
+    state = _state_from_session(root, session_id)
     while True:
         try:
             prompt = console.input("[ck.accent]❯ [/]").strip()
@@ -172,6 +294,12 @@ def chat(
             break
         if not prompt or prompt in {"/exit", "/quit"}:
             break
+        if prompt == "/new":
+            session_id = new_session_id(root)
+            set_current_session_id(root, session_id)
+            state = None
+            console.print(f"[ck.dim]new session {session_id}[/ck.dim]")
+            continue
         state = asyncio.run(
             _run_task(prompt, settings, auto_approve=yes, resume=state, test_command=test)
         )
@@ -192,11 +320,12 @@ def chat(
                 "token_input": state.token_input,
                 "token_output": state.token_output,
             },
+            session_id=session_id,
         )
 
 
-def _state_from_session(workspace: Path) -> AgentState | None:
-    raw = load_session(workspace)
+def _state_from_session(workspace: Path, session_id: str | None = None) -> AgentState | None:
+    raw = load_session(workspace, session_id)
     if not raw:
         return None
     plan = [PlanItem(title=p["title"], done=p.get("done", False)) for p in raw.get("plan") or []]
@@ -430,11 +559,28 @@ def _print_state(state: AgentState) -> None:
 
 
 def main() -> None:
-    """Entry point: bare `coderking` / `codeking` drops straight into chat."""
+    """Entry point: bare `coderking` / `codeking` drops straight into chat.
+
+    Also maps claude-style shortcuts before Typer sees them:
+      codeking          → continue the current session
+      codeking -c       → same as bare (explicit continue)
+      codeking -r       → interactive session picker
+      codeking -r 2     → resume the 2nd session from `codeking sessions`
+    """
     import sys
 
-    if len(sys.argv) == 1:
+    argv = sys.argv[1:]
+    if not argv:
         sys.argv = [sys.argv[0], "chat"]
+    elif argv[0] in {"-r", "--resume"}:
+        rest = argv[1:]
+        rewritten = [sys.argv[0], "chat", "--resume"]
+        if rest and rest[0].isdigit():
+            rewritten += ["--resume-index", rest[0]]
+            rest = rest[1:]
+        sys.argv = rewritten + rest
+    elif argv[0] in {"-c", "--continue"}:
+        sys.argv = [sys.argv[0], "chat", *argv[1:]]
     app()
 
 

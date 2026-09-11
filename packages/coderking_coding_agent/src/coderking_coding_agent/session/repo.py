@@ -109,19 +109,20 @@ class SessionRepo:
         raw = self.jsonl_path.read_bytes()
         if not raw:
             return 0
-        text = raw.decode("utf-8", errors="replace")
-        lines = text.splitlines(keepends=True)
+        # Work in bytes throughout: char offsets and byte offsets diverge on
+        # multibyte content (e.g. CJK prompts), and slicing raw by a char
+        # count silently truncates valid UTF-8 tails.
         valid_end = 0
-        for i, line in enumerate(lines):
+        for line in raw.splitlines(keepends=True):
             stripped = line.strip()
             if not stripped:
-                valid_end = sum(len(lines[j]) for j in range(i + 1))
+                valid_end += len(line)
                 continue
             try:
                 json.loads(stripped)
-                valid_end = sum(len(lines[j]) for j in range(i + 1))
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 break
+            valid_end += len(line)
         removed = len(raw) - valid_end
         if removed > 0:
             self.jsonl_path.write_bytes(raw[:valid_end])

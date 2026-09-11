@@ -11,7 +11,7 @@ from uuid import uuid4
 import httpx
 
 from coderking_llm.abort import await_with_abort
-from coderking_llm.openai_stream import complete_chat_streaming
+from coderking_llm.openai_stream import api_error_detail, complete_chat_streaming
 from coderking_llm.provider import LLMResponse, ToolCall
 from coderking_llm.retry import RetryPolicy, retry_async
 
@@ -121,6 +121,9 @@ class OpenAICompatProvider:
                 response = await await_with_abort(
                     client.post(url, headers=headers, json=clean), should_abort
                 )
+            detail = api_error_detail(response)
+            if detail:
+                raise RuntimeError(detail)
             response.raise_for_status()
             return parse_chat_completion(response.json())
 

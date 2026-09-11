@@ -17,6 +17,21 @@ from coderking_llm.sse import (
 )
 
 
+def api_error_detail(response: httpx.Response) -> str:
+    """Extract the provider's own error message (e.g. quota/balance codes)."""
+    try:
+        data = response.json()
+        err = data.get("error") if isinstance(data.get("error"), dict) else {}
+        code = err.get("code") or data.get("code")
+        message = err.get("message") or data.get("message")
+        if message:
+            suffix = f" (code {code})" if code is not None else ""
+            return f"HTTP {response.status_code}: {message}{suffix}"
+    except Exception:
+        pass
+    return ""
+
+
 async def stream_chat_completion(
     *,
     client: httpx.AsyncClient,
@@ -27,9 +42,25 @@ async def stream_chat_completion(
 ) -> AsyncIterator[StreamChunk]:
     """Yield StreamChunks from an OpenAI-compatible SSE response body."""
     stream_payload = {**payload, "stream": True, "stream_options": {"include_usage": True}}
-    async with client.stream("POST", url, headers=headers, json=stream_payload) as response:
+
+    response_cm = client.stream("POST", url, headers=headers, json=stream_payload)
+    response = await response_cm.__aenter__()
+    try:
+        if response.status_code >= 400 and ("thinking" in payload or "enable_thinking" in payload):
+            # Mirror the non-stream fallback: some models (e.g. always-thinking
+            # GLM) reject explicit thinking controls; retry once without them.
+            await response.aread()
+            await response_cm.__aexit__(None, None, None)
+            clean = {
+                k: v for k, v in stream_payload.items() if k not in {"thinking", "enable_thinking"}
+            }
+            response_cm = client.stream("POST", url, headers=headers, json=clean)
+            response = await response_cm.__aenter__()
         if response.status_code >= 400:
             await response.aread()
+            detail = api_error_detail(response)
+            if detail:
+                raise RuntimeError(detail)
             response.raise_for_status()
         async for line in response.aiter_lines():
             if should_abort and should_abort():
@@ -38,6 +69,8 @@ async def stream_chat_completion(
             for payload_obj in iter_sse_json_payloads([line + "\n", "\n"]):
                 for chunk in parse_openai_sse_chunk(payload_obj):
                     yield chunk
+    finally:
+        await response_cm.__aexit__(None, None, None)
 
 
 async def complete_chat_streaming(

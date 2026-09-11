@@ -94,6 +94,8 @@ User → CLI / Web UI → FastAPI + WebSocket
 
 **Requirements:** Python 3.12+, Node 22+ (Web only), Docker optional.
 
+> 📖 New to CodeKing? Start with the **[CLI 使用指南](docs/cli/README.md)** — a complete beginner tutorial covering every command (`run`, `new`, `-r` session resume, and more) with examples.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate

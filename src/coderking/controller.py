@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -67,6 +67,7 @@ class TaskController:
         auto_approve: bool = False,
         test_command: str | None = None,
         state: AgentState | None = None,
+        skill_names: Sequence[str] = (),
     ) -> ManagedTask:
         root = (workspace or self.settings.resolved_workspace()).resolve()
         managed = ManagedTask(
@@ -96,6 +97,7 @@ class TaskController:
                     test_command=test_command,
                     state=managed.state,
                     queues=managed.queues,
+                    skill_names=skill_names,
                 )
             finally:
                 await managed.events.put(None)
@@ -186,6 +188,10 @@ class TaskController:
                 "status": state.sandbox_status,
             },
             "tokens": {"prompt": state.token_input, "completion": state.token_output},
+            "context": {
+                "estimated_tokens": state.context_tokens_estimated,
+                "compression_count": state.compression_count,
+            },
             "errors": state.errors,
             "events": task.snapshot[-200:],
         }

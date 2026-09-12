@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from coderking_coding_agent.context.budget import estimate_text_tokens
 SKILL_TAG_RE = re.compile(r'<skill name="([^"]+)">', re.IGNORECASE)
 DEFAULT_MAX_INJECT_TOKENS = 2000
 FRONTMATTER_TOKEN_BUDGET = 100
+MAX_SKILL_INJECT_TOKENS = 20_000
 
 
 @dataclass(frozen=True)
@@ -77,18 +79,38 @@ def activated_skill_names(messages: list[dict[str, Any]]) -> set[str]:
 
 
 class SkillRegistry:
-    def __init__(self, workspace: Path, *, include_cursor: bool = True) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        include_cursor: bool = True,
+        include_global: bool = True,
+        global_root: Path | None = None,
+    ) -> None:
         self.workspace = workspace.resolve()
         self.include_cursor = include_cursor
+        self.include_global = include_global
+        self.global_root = (global_root or Path.home() / ".coderking" / "skills").resolve()
         self._manifests: dict[str, SkillManifest] = {}
         self._body_cache: dict[str, tuple[str, str]] = {}
+        self._diagnostics: list[str] = []
         self._scan()
 
     def manifests(self) -> list[SkillManifest]:
         return list(self._manifests.values())
 
     def get(self, name: str) -> SkillManifest | None:
-        return self._manifests.get(name)
+        direct = self._manifests.get(name)
+        if direct is not None:
+            return direct
+        folded = name.casefold()
+        return next(
+            (manifest for key, manifest in self._manifests.items() if key.casefold() == folded),
+            None,
+        )
+
+    def diagnostics(self) -> tuple[str, ...]:
+        return tuple(self._diagnostics)
 
     def frontmatter_token_estimate(self) -> int:
         total = 0
@@ -101,6 +123,7 @@ class SkillRegistry:
         return {
             "count": len(self._manifests),
             "frontmatter_tokens": self.frontmatter_token_estimate(),
+            "diagnostics": list(self._diagnostics),
             "skills": [
                 {
                     "name": item.name,
@@ -129,27 +152,47 @@ class SkillRegistry:
 
     def _scan(self) -> None:
         roots: list[tuple[Path, str]] = [(self.workspace / ".coderking" / "skills", "workspace")]
+        if self.include_global:
+            roots.append((self.global_root, "global"))
         if self.include_cursor:
             roots.append((Path.home() / ".cursor" / "skills", "cursor"))
         for root, source in roots:
             if not root.is_dir():
                 continue
-            for skill_dir in sorted(root.iterdir()):
-                if not skill_dir.is_dir():
+            for skill_md in sorted(root.rglob("SKILL.md")):
+                skill_dir = skill_md.parent
+                try:
+                    meta, _ = parse_skill_file(skill_md.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, yaml.YAMLError) as exc:
+                    self._diagnostics.append(f"{skill_md}: {exc}")
                     continue
-                skill_md = skill_dir / "SKILL.md"
-                if not skill_md.is_file():
-                    continue
-                meta, _ = parse_skill_file(skill_md.read_text(encoding="utf-8"))
                 name = str(meta.get("name") or skill_dir.name)
-                if name in self._manifests and source == "cursor":
+                if not name.strip():
+                    self._diagnostics.append(f"{skill_md}: skill name is empty")
+                    continue
+                if self.get(name) is not None:
+                    self._diagnostics.append(
+                        f"{skill_md}: duplicate skill {name!r}; higher-priority definition kept"
+                    )
                     continue
                 triggers_raw = meta.get("triggers") or []
+                if isinstance(triggers_raw, str):
+                    triggers_raw = [triggers_raw]
                 triggers = tuple(
                     str(item).strip().lower() for item in triggers_raw if str(item).strip()
                 )
                 description = str(meta.get("description") or name)
-                max_tokens = int(meta.get("max_inject_tokens") or DEFAULT_MAX_INJECT_TOKENS)
+                try:
+                    max_tokens = int(meta.get("max_inject_tokens") or DEFAULT_MAX_INJECT_TOKENS)
+                except (TypeError, ValueError):
+                    self._diagnostics.append(f"{skill_md}: max_inject_tokens must be an integer")
+                    continue
+                if not 1 <= max_tokens <= MAX_SKILL_INJECT_TOKENS:
+                    self._diagnostics.append(
+                        f"{skill_md}: max_inject_tokens must be between 1 and "
+                        f"{MAX_SKILL_INJECT_TOKENS}"
+                    )
+                    continue
                 self._manifests[name] = SkillManifest(
                     name=name,
                     description=description,
@@ -168,7 +211,12 @@ class SkillMatcher:
         haystack = f"{prompt}\n{recent_context}".lower()
         hits: list[SkillManifest] = []
         for manifest in self.registry.manifests():
-            if any(trigger in haystack for trigger in manifest.triggers):
+            explicit_names = {
+                f"${manifest.name.lower()}",
+                f"/skill:{manifest.name.lower()}",
+            }
+            matched_explicitly = any(name in haystack for name in explicit_names)
+            if matched_explicitly or any(trigger in haystack for trigger in manifest.triggers):
                 hits.append(manifest)
         return hits
 
@@ -180,13 +228,18 @@ def inject_matching_skills(
     recent_context: str = "",
     *,
     registry: SkillRegistry | None = None,
+    insert_at: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[InjectedSkill]]:
     active = registry or SkillRegistry(workspace)
     already = activated_skill_names(messages)
     matched = SkillMatcher(active).match(prompt, recent_context)
     injected: list[InjectedSkill] = []
     updated = list(messages)
-    insert_at = 1 if updated and updated[0].get("role") == "system" else 0
+    position = (
+        insert_at
+        if insert_at is not None
+        else (1 if updated and updated[0].get("role") == "system" else 0)
+    )
     offset = 0
     for manifest in matched:
         if manifest.name in already:
@@ -194,8 +247,36 @@ def inject_matching_skills(
         skill = active.load_body(manifest.name)
         if skill is None:
             continue
-        updated.insert(insert_at + offset, format_skill_message(skill))
+        updated.insert(position + offset, format_skill_message(skill))
         injected.append(skill)
         already.add(manifest.name)
         offset += 1
+    return updated, injected
+
+
+def inject_named_skills(
+    messages: list[dict[str, Any]],
+    names: Sequence[str],
+    *,
+    registry: SkillRegistry,
+    insert_at: int | None = None,
+) -> tuple[list[dict[str, Any]], list[InjectedSkill]]:
+    """Inject explicitly selected skills or fail with a useful error."""
+    already = activated_skill_names(messages)
+    updated = list(messages)
+    position = insert_at if insert_at is not None else len(updated)
+    injected: list[InjectedSkill] = []
+    for requested in names:
+        manifest = registry.get(requested.strip())
+        if manifest is None:
+            available = ", ".join(item.name for item in registry.manifests()) or "none"
+            raise ValueError(f"unknown skill {requested!r}; available skills: {available}")
+        if manifest.name in already:
+            continue
+        skill = registry.load_body(manifest.name)
+        if skill is None:
+            raise ValueError(f"skill {manifest.name!r} could not be loaded")
+        updated.insert(position + len(injected), format_skill_message(skill))
+        injected.append(skill)
+        already.add(manifest.name)
     return updated, injected

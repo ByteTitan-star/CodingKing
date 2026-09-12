@@ -23,6 +23,8 @@ class TaskRecord:
     workspace: str
     last_test_ok: bool | None
     repair_count: int
+    context_tokens_estimated: int = 0
+    compression_count: int = 0
 
 
 def _dir(workspace: Path) -> Path:
@@ -46,6 +48,8 @@ def record_from_state(state: AgentState, workspace: Path) -> TaskRecord:
         workspace=str(workspace.resolve()),
         last_test_ok=state.last_test_ok,
         repair_count=state.repair_count,
+        context_tokens_estimated=state.context_tokens_estimated,
+        compression_count=state.compression_count,
     )
 
 
@@ -74,6 +78,22 @@ def load_task(workspace: Path, task_id: str) -> TaskRecord | None:
             return current
         return None
     return TaskRecord(**json.loads(path.read_text(encoding="utf-8")))
+
+
+def list_tasks(workspace: Path) -> list[TaskRecord]:
+    """Return persisted task records, newest file first."""
+    task_dir = _dir(workspace) / "tasks"
+    if not task_dir.is_dir():
+        return []
+    records: list[tuple[int, TaskRecord]] = []
+    for path in task_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            records.append((path.stat().st_mtime_ns, TaskRecord(**data)))
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+    records.sort(key=lambda item: item[0], reverse=True)
+    return [record for _, record in records]
 
 
 def request_cancel(workspace: Path, task_id: str) -> None:

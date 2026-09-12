@@ -40,3 +40,9 @@ def test_config_model_does_not_write_api_key(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert "secret" not in text
     assert "deepseek-chat" in text
+
+
+def test_optional_resources_are_fail_closed_by_default() -> None:
+    settings = Settings()
+    assert settings.dynamic_tools_enabled is False
+    assert settings.mcp_enabled is False

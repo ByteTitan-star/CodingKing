@@ -55,11 +55,18 @@ class RpcService:
             raise ValueError("params.text is required")
         auto_approve = bool(params.get("auto_approve", False))
         test_command = params.get("test_command")
+        skills_raw = params.get("skills") or []
+        valid_skills = isinstance(skills_raw, list) and all(
+            isinstance(item, str) for item in skills_raw
+        )
+        if not valid_skills:
+            raise ValueError("params.skills must be a list of skill names")
         task = await self.controller.create_task(
             text,
             self.workspace,
             auto_approve=auto_approve,
             test_command=str(test_command) if test_command else None,
+            skill_names=skills_raw,
         )
         task_id = task.state.task_id
         idle = asyncio.Event()

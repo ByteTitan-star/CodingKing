@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +14,20 @@ from coderking_agent_core.loop import (
     run_agent_loop,
 )
 from coderking_agent_core.types import AgentContext, AgentMessage, AgentTool
+from coderking_coding_agent.context.budget import TokenBudget, estimate_messages_tokens
 from coderking_coding_agent.context.project_docs import inject_project_instructions
-from coderking_coding_agent.context.skills import SkillRegistry, inject_matching_skills
-from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig
+from coderking_coding_agent.context.skills import (
+    SkillRegistry,
+    inject_matching_skills,
+    inject_named_skills,
+)
+from coderking_coding_agent.context.transform import ContextCompressor, make_transform_context
+from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig, RuntimeResources
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
     content_delta_event,
+    context_compressed_event,
     done_event,
     error_event,
     phase_change_event,
@@ -131,6 +138,35 @@ def tool_schemas(tools: list[AgentTool]) -> list[dict[str, Any]]:
     ]
 
 
+def agent_message_from_dict(message: dict[str, Any]) -> AgentMessage:
+    """Hydrate a persisted OpenAI-style message without losing tool metadata."""
+    tool_calls = message.get("tool_calls")
+    meta = message.get("meta")
+    return AgentMessage(
+        role=str(message.get("role") or "user"),
+        content=str(message["content"]) if message.get("content") is not None else None,
+        tool_calls=list(tool_calls) if isinstance(tool_calls, list) else [],
+        tool_call_id=(
+            str(message["tool_call_id"]) if message.get("tool_call_id") is not None else None
+        ),
+        name=str(message["name"]) if message.get("name") is not None else None,
+        meta=dict(meta) if isinstance(meta, dict) else {},
+    )
+
+
+def agent_message_to_dict(message: AgentMessage) -> dict[str, Any]:
+    item: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        item["tool_calls"] = message.tool_calls
+    if message.tool_call_id:
+        item["tool_call_id"] = message.tool_call_id
+    if message.name:
+        item["name"] = message.name
+    if message.meta:
+        item["meta"] = message.meta
+    return item
+
+
 class AtomicL1Runtime:
     """Pi-style atomic agent: L1 loop + read/write/edit/bash only."""
 
@@ -160,13 +196,17 @@ class AtomicL1Runtime:
         state: AgentState | None = None,
         approve: ApprovalFn | None = None,
         auto_approve: bool = False,
+        skill_names: Sequence[str] = (),
     ) -> AgentState:
+        self._run_cancel = RunCancel()
         workspace = workspace.resolve()
         source = workspace
         state = state or AgentState(task=prompt, repository=str(source))
         state.task = prompt  # resumed sessions must reflect the current prompt
         state.status = TaskStatus.RUNNING
         state.role = Role.CODING
+        state.cancel_requested = False
+        self.bindings.persist_state(source, state)
         cow: CowWorkspace | None = None
         if self.config.sandbox_cow:
             cow = CowWorkspace(source, session_id=state.task_id)
@@ -181,7 +221,14 @@ class AtomicL1Runtime:
         await on_event(status_event(state.role, state.status))
 
         policy_engine = PolicyEngine.load(source)
-        phase1_tools = dict(self.bindings.build_tools(workspace, sandbox))
+        resources: RuntimeResources | None = None
+        if self.bindings.load_resources is not None:
+            resources = await self.bindings.load_resources(workspace, sandbox)
+            phase1_tools = dict(resources.tools)
+            for diagnostic in resources.diagnostics:
+                await on_event(AgentEvent("resource_diagnostic", {"message": diagnostic}))
+        else:
+            phase1_tools = dict(self.bindings.build_tools(workspace, sandbox))
         agent_tools = [
             wrap_phase1_tool(
                 tool,
@@ -196,12 +243,21 @@ class AtomicL1Runtime:
         ]
         context = AgentContext(system_prompt=self.system_prompt, tools=agent_tools)
 
-        # Pi-style progressive disclosure: AGENTS.md + matching skills on first turn only.
-        seed: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-        if not state.messages:
+        # Restore the actual transcript, then add this turn. Project instructions
+        # are session-scoped; skills may be activated on any later turn.
+        restoring_history = bool(state.messages)
+        if restoring_history:
+            seed = [
+                dict(message)
+                for index, message in enumerate(state.messages)
+                if not (index == 0 and message.get("role") == "system")
+            ]
+            seed.append({"role": "user", "content": prompt})
+        else:
+            seed = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": prompt},
+            ]
             seed, project_doc = inject_project_instructions(source, seed)
             if project_doc is not None:
                 await on_event(
@@ -211,22 +267,66 @@ class AtomicL1Runtime:
                         truncated=project_doc.truncated,
                     )
                 )
-            skill_registry = SkillRegistry(source, include_cursor=False)
-            seed, injected_skills = inject_matching_skills(
-                source,
-                seed,
-                prompt,
-                registry=skill_registry,
-            )
-            for skill in injected_skills:
-                await on_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
+        skill_registry = SkillRegistry(source)
+        current_user_index = len(seed) - 1
+        seed, explicit_skills = inject_named_skills(
+            seed,
+            skill_names,
+            registry=skill_registry,
+            insert_at=current_user_index,
+        )
+        current_user_index += len(explicit_skills)
+        recent_context = "\n".join(
+            str(message.get("content") or "") for message in seed[max(0, current_user_index - 4) :]
+        )
+        seed, matched_skills = inject_matching_skills(
+            source,
+            seed,
+            prompt,
+            recent_context,
+            registry=skill_registry,
+            insert_at=current_user_index,
+        )
+        for skill in [*explicit_skills, *matched_skills]:
+            await on_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
         initial_messages = [
-            AgentMessage(role=str(m["role"]), content=str(m.get("content") or ""))
-            for m in seed
-            if m.get("role") != "system"
+            agent_message_from_dict(m)
+            for index, m in enumerate(seed)
+            if restoring_history or not (index == 0 and m.get("role") == "system")
         ]
 
+        async def emit_compression(event: dict[str, Any]) -> None:
+            kind = str(event.get("type") or "")
+            payload = {key: value for key, value in event.items() if key != "type"}
+            if kind == "context_compressed":
+                before = int(payload.get("before_tokens") or 0)
+                after = int(payload.get("after_tokens") or 0)
+                state.compression_count += 1
+                state.context_tokens_estimated = after
+                await on_event(
+                    context_compressed_event(
+                        before,
+                        after,
+                        structured=dict(payload.get("structured") or {}),
+                    )
+                )
+            elif kind:
+                await on_event(AgentEvent(kind, payload))
+
+        compressor = ContextCompressor(
+            budget=TokenBudget(
+                context_window=self.config.context_window,
+                reserve_completion=self.config.compression_reserve_tokens,
+                compress_threshold=self.config.compression_threshold,
+            ),
+            emit=emit_compression,
+            keep_recent_messages=self.config.compression_keep_recent_messages,
+        )
+
         async def complete_turn(ctx: AgentContext) -> TurnResult:
+            if self.bindings.cancel_requested(source, state.task_id):
+                state.cancel_requested = True
+                self._run_cancel.abort()
             if self.cancel is not None and getattr(self.cancel, "cancelled", False):
                 self._run_cancel.abort()
                 raise CancelledRun("cancelled")
@@ -280,6 +380,8 @@ class AtomicL1Runtime:
 
         async def emit(event: dict[str, Any]) -> None:
             await _bridge_l1_event(event, on_event, state, pending_args)
+            if event.get("type") in {"turn_start", "tool_execution_end", "error", "agent_end"}:
+                self.bindings.persist_state(source, state)
 
         pending_args: dict[str, dict[str, Any]] = {}
         try:
@@ -290,8 +392,14 @@ class AtomicL1Runtime:
                     get_steering_messages=get_steering,
                     get_follow_up_messages=get_follow_up,
                     should_stop_after_turn=should_stop,
+                    transform_context=(
+                        make_transform_context(compressor)
+                        if self.config.compression_enabled
+                        else None
+                    ),
                     max_turns=self.config.max_iterations,
                     tool_execution="sequential",
+                    persist_context_transform=self.config.compression_enabled,
                     cancel=self._run_cancel,
                 ),
                 emit,
@@ -299,16 +407,9 @@ class AtomicL1Runtime:
             )
             state.messages = [
                 {"role": "system", "content": self.system_prompt},
-                *[
-                    {
-                        "role": m.role,
-                        "content": m.content,
-                        **({"tool_calls": m.tool_calls} if m.tool_calls else {}),
-                        **({"tool_call_id": m.tool_call_id} if m.tool_call_id else {}),
-                    }
-                    for m in final.messages
-                ],
+                *[agent_message_to_dict(message) for message in final.messages],
             ]
+            state.context_tokens_estimated = estimate_messages_tokens(final.messages)
             if state.status == TaskStatus.RUNNING:
                 state.status = TaskStatus.SUCCEEDED
                 await on_event(done_event(True, "atomic agent completed"))
@@ -324,6 +425,8 @@ class AtomicL1Runtime:
                 await on_event(error_event(str(exc)))
                 await on_event(done_event(False, str(exc)))
         finally:
+            if resources is not None:
+                await resources.aclose()
             await sandbox.close()
             state.sandbox_status = "idle"
             if cow is not None:
@@ -331,6 +434,7 @@ class AtomicL1Runtime:
                     cow.promote()
                 cow.close()
             self.bindings.persist_state(source, state)
+            self.bindings.clear_cancel(source, state.task_id)
         return state
 
 
@@ -341,6 +445,9 @@ async def _bridge_l1_event(
     pending_args: dict[str, dict[str, Any]],
 ) -> None:
     kind = str(event.get("type") or "")
+    if kind == "turn_start":
+        state.iteration = int(event.get("turn") or 0)
+        return
     if kind == "phase_change":
         await on_event(
             phase_change_event(
@@ -374,6 +481,15 @@ async def _bridge_l1_event(
         arguments = pending_args.pop(call_id, {})
         await on_event(tool_event(name, "ok" if ok else "error", preview=preview))
         state.tool_history.append(ToolRecord(name=name, arguments=arguments, output=preview, ok=ok))
+        if ok and name in {"write", "edit", "write_file", "edit_file", "create_file"}:
+            path = str(arguments.get("path") or "").strip()
+            if path:
+                state.mark_file(path)
+        if name in {"bash", "shell"}:
+            command = str(arguments.get("command") or "").lower()
+            if any(marker in command for marker in ("test", "pytest", "unittest", "vitest")):
+                state.test_results = preview
+                state.last_test_ok = ok
         return
     if kind == "llm_delta":
         text = str(event.get("text") or "")
@@ -381,4 +497,8 @@ async def _bridge_l1_event(
             await on_event(content_delta_event(text))
         return
     if kind == "error":
-        await on_event(error_event(str(event.get("message") or "error")))
+        message = str(event.get("message") or "error")
+        if message not in state.errors:
+            state.errors.append(message)
+        state.status = TaskStatus.FAILED
+        await on_event(error_event(message))

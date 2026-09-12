@@ -64,6 +64,31 @@ def test_phase_a_keeps_recent_turns() -> None:
     assert any(m.meta.get("compression") for m in compressed)
 
 
+def test_phase_a_does_not_split_assistant_tool_group() -> None:
+    messages = [
+        AgentMessage(role="system", content="core"),
+        AgentMessage(role="user", content="old request"),
+        AgentMessage(
+            role="assistant",
+            tool_calls=[
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "read", "arguments": '{"path":"a.py"}'},
+                }
+            ],
+        ),
+        AgentMessage(role="tool", content="file", tool_call_id="call-1", name="read"),
+        AgentMessage(role="user", content="new request"),
+        AgentMessage(role="assistant", content="answer"),
+    ]
+    compressed, _ = phase_a_compress(messages, keep_recent_messages=3)
+    retained = [message for message in compressed if not message.meta.get("compression")]
+    first_tool = next(index for index, message in enumerate(retained) if message.role == "tool")
+    assert retained[first_tool - 1].role == "assistant"
+    assert retained[first_tool - 1].tool_calls
+
+
 @pytest.mark.asyncio
 async def test_compressor_reduces_200_turn_transcript(tmp_path) -> None:
     budget = TokenBudget(context_window=8_000, reserve_completion=500, compress_threshold=0.75)

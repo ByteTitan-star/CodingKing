@@ -5,6 +5,12 @@ from pathlib import Path
 import pytest
 import yaml
 
+from coderking.config import Settings
+from coderking.llm.provider import LLMResponse, ToolCall
+from coderking.resources import ResourceLoader
+from coderking.runtime.loop import AgentRuntime
+from coderking.runtime.state import TaskStatus
+from coderking.sandbox.local import LocalProcessSandbox
 from coderking.tools.dynamic_adapter import DynamicTool, wrap_dynamic_tools
 from coderking_coding_agent.tools.dynamic import (
     DynamicToolLoader,
@@ -106,3 +112,59 @@ def test_loader_discovers_tool_on_second_refresh(tmp_path: Path) -> None:
     loaded = loader.refresh()
     assert "late_tool" in loaded
     assert loader.names() == frozenset({"late_tool"})
+
+
+@pytest.mark.asyncio
+async def test_resource_loader_keeps_dynamic_tools_disabled_by_default(tmp_path: Path) -> None:
+    _write_tool(tmp_path, "echo_tool")
+    settings = Settings(workspace=tmp_path, sandbox_mode="local")
+    resources = await ResourceLoader(settings).load(tmp_path, LocalProcessSandbox(tmp_path))
+    try:
+        assert set(resources.tools) == {"read", "write", "edit", "bash"}
+    finally:
+        await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_executes_explicitly_enabled_dynamic_tool(tmp_path: Path) -> None:
+    _write_tool(tmp_path, "echo_tool")
+
+    class _LLM:
+        def __init__(self) -> None:
+            self.turn = 0
+            self.tools: list[dict] = []
+
+        async def complete(self, messages, tools, cancel=None):  # noqa: ANN001, ARG002
+            self.tools = list(tools)
+            self.turn += 1
+            if self.turn == 1:
+                return LLMResponse(
+                    "",
+                    [ToolCall(id="dynamic-1", name="echo_tool", arguments={"msg": "hello"})],
+                )
+            return LLMResponse("done", [])
+
+    llm = _LLM()
+    settings = Settings(
+        openai_api_key="x",
+        workspace=tmp_path,
+        sandbox_mode="local",
+        dynamic_tools_enabled=True,
+    )
+    state = await AgentRuntime(settings, llm).run(
+        "use echo",
+        tmp_path,
+        on_event=lambda _event: _async_none(),
+        auto_approve=True,
+    )
+
+    names = {(tool.get("function") or {}).get("name") for tool in llm.tools}
+    assert "echo_tool" in names
+    assert state.status == TaskStatus.SUCCEEDED
+    assert any(
+        record.name == "echo_tool" and "hello" in record.output for record in state.tool_history
+    )
+
+
+async def _async_none() -> None:
+    return None

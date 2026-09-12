@@ -85,6 +85,7 @@ class TaskCreate(BaseModel):
     repository: str | None = None
     auto_approve: bool = False
     test_command: str | None = None
+    skills: list[str] = Field(default_factory=list)
 
 
 class SteerBody(BaseModel):
@@ -136,6 +137,7 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             workspace,
             auto_approve=auto_approve,
             test_command=body.test_command,
+            skill_names=body.skills,
         )
         return ctrl.public_task(task.state.task_id)
 

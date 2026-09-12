@@ -108,6 +108,22 @@ def skill_injected_event(name: str, *, truncated: bool) -> AgentEvent:
     return AgentEvent("skill_injected", {"name": name, "truncated": truncated})
 
 
+def context_compressed_event(
+    before_tokens: int,
+    after_tokens: int,
+    *,
+    structured: dict[str, Any],
+) -> AgentEvent:
+    return AgentEvent(
+        "context_compressed",
+        {
+            "before_tokens": before_tokens,
+            "after_tokens": after_tokens,
+            "structured": structured,
+        },
+    )
+
+
 def phase_change_event(*, phase: str, from_phase: str | None = None) -> AgentEvent:
     payload: dict[str, Any] = {"phase": phase}
     if from_phase is not None:

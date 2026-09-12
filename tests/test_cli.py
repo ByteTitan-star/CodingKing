@@ -29,6 +29,8 @@ def test_cli_help() -> None:
     assert "tui" in out
     assert "stop" in out
     assert "status" in out
+    assert "skills" in out
+    assert "tasks" in out
 
 
 def test_run_help_exposes_test_soft_hint() -> None:
@@ -126,3 +128,33 @@ def test_eval_requires_api_key(tmp_path: Path, monkeypatch) -> None:  # noqa: AN
     result = runner.invoke(app, ["eval", "--workspace", str(tmp_path)])
     assert result.exit_code == 1
     assert "CODERKING_OPENAI_API_KEY" in result.stdout
+
+
+def test_skills_list_and_show(tmp_path: Path) -> None:
+    skill_dir = tmp_path / ".coderking" / "skills" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code\ntriggers: [review]\n---\n"
+        "# Steps\nBe precise.\n",
+        encoding="utf-8",
+    )
+    listed = runner.invoke(app, ["skills", "list", "--workspace", str(tmp_path)])
+    assert listed.exit_code == 0
+    assert "review" in listed.stdout
+    shown = runner.invoke(app, ["skills", "show", "review", "--workspace", str(tmp_path)])
+    assert shown.exit_code == 0
+    assert "Be precise" in shown.stdout
+
+
+def test_tasks_lists_persisted_records(tmp_path: Path) -> None:
+    first = AgentState(task="first", repository=str(tmp_path), task_id="task-first")
+    first.status = TaskStatus.SUCCEEDED
+    persist_state(tmp_path, first)
+    second = AgentState(task="second", repository=str(tmp_path), task_id="task-second")
+    second.status = TaskStatus.FAILED
+    persist_state(tmp_path, second)
+
+    result = runner.invoke(app, ["tasks", "--workspace", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "task-first" in result.stdout
+    assert "task-second" in result.stdout

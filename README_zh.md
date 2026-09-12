@@ -119,6 +119,9 @@ coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-c
 coderking run "修复当前仓库里失败的单元测试" --workspace .
 coderking run "修复失败测试" --workspace . --test "python -m pytest -q"
 coderking chat --workspace .
+coderking skills list
+coderking run --skill code-review "审查当前改动"
+coderking tasks
 coderking status
 coderking stop <task_id>
 coderking eval --path eval/tasks --report-dir eval/reports
@@ -150,6 +153,11 @@ cd web && npm install && npm run dev
 | `CODERKING_DISABLE_THINKING` | 关闭推理模型 thinking 字段（默认 true） |
 | `CODERKING_SANDBOX_MODE` | `auto` / `docker` / `local` |
 | `CODERKING_ALLOW_COMMIT` | 是否允许 `git_commit` 工具 |
+| `CODERKING_CONTEXT_WINDOW` | 当前模型上下文窗口（默认 128000） |
+| `CODERKING_COMPRESSION_ENABLED` | 是否自动压缩长会话（默认 true） |
+| `CODERKING_COMPRESSION_THRESHOLD` | 触发压缩的窗口比例（默认 0.75） |
+| `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为模型回复预留的 token（默认 4096） |
+| `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时至少保留的最近消息数（默认 20） |
 
 若上游 API 不支持 `thinking` 字段，客户端会自动去掉该字段并重试一次。
 
@@ -179,6 +187,7 @@ docs/              设计文档、展示素材与验收清单
 
 ## 文档
 
+- [能力审计与实现路线图](docs/CoderKing-Implementation-Roadmap.md)
 - [技术方案](docs/CoderKing-Technical-Design.md)
 - [Web UI 与 CLI 设计](docs/CoderKing-WebUI-CLI-Design.md)
 - [第一期验收](docs/phase1-acceptance.md)

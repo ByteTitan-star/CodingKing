@@ -35,26 +35,34 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 
 ## Product showcase
 
-### Agent loop in action
+All screenshots below are **live captures of v1.1.0** — a real agent run fixing a real failing test (`a - b` → `a + b`).
 
-![CoderKing workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
+### CLI (the primary surface)
 
-A failing unit test triggers the pure agent loop (edit → bash/tests → iterate). The workspace shows tool trace, patched files, and pytest output in one view.
+![CodeKing CLI: splash banner, task run, collapsed tool trace, Markdown reply](docs/showcase/assets/product-cli.png)
+
+Bare `codeking` drops into the REPL: banner → describe a task → the agent explores, edits, and verifies (`⏺ 工具 ×5` collapsed summary, `/trace` to expand) → reply rendered as Markdown → result summary.
+
+### Web workspace
+
+![CoderKing light workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
+
+A failing unit test triggers the pure agent loop (edit → bash/tests → iterate). The workspace shows the tool timeline, patched files, and test output in one light, chat-centric view.
 
 ### Unified diff
 
 ![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
 
-Review exactly what changed before accepting or rolling back.
+Review exactly what changed — per-line diff with add/delete highlighting — before accepting or rolling back.
 
 ## Product interface
 
-| Engineering workspace | Diff & runtime |
-| --- | --- |
-| ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
-| Describe a task, watch agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
+| CLI | Web workspace | Diff & runtime |
+| --- | --- | --- |
+| ![CodeKing CLI REPL](docs/showcase/assets/product-cli.png) | ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
+| Streaming REPL with session management and slash autocomplete. | Describe a task, watch agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
 
-Screenshots live under [`docs/showcase/`](docs/showcase/). Re-capture with `python scripts/capture_showcase.py` or replace assets after a live demo run.
+Screenshots live under [`docs/showcase/`](docs/showcase/); they are captured from real runs against the redesigned v1.1.0 UI.
 
 ## Core features
 

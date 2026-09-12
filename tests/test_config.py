@@ -46,3 +46,6 @@ def test_optional_resources_are_fail_closed_by_default() -> None:
     settings = Settings()
     assert settings.dynamic_tools_enabled is False
     assert settings.mcp_enabled is False
+    assert settings.micro_compaction_enabled is True
+    assert settings.micro_compaction_threshold == 0.5
+    assert settings.micro_compaction_keep_recent_tool_results == 4

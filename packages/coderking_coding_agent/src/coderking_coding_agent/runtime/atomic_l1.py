@@ -20,6 +20,7 @@ from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
+    content_delta_event,
     done_event,
     error_event,
     phase_change_event,
@@ -233,10 +234,21 @@ class AtomicL1Runtime:
             messages = openai_messages_from_context(ctx)
             schemas = tool_schemas(ctx.tools)
             complete = self.llm.complete
+
+            async def on_delta(text: str) -> None:
+                # Token streaming: forward content deltas to the UI layer.
+                await emit({"type": "llm_delta", "text": text})
+
             try:
-                response = await complete(messages, schemas, cancel=self.cancel)
+                response = await complete(messages, schemas, cancel=self.cancel, on_delta=on_delta)
             except TypeError:
-                response = await complete(messages, schemas)
+                try:
+                    response = await complete(messages, schemas, cancel=self.cancel)
+                except TypeError:
+                    try:
+                        response = await complete(messages, schemas, on_delta=on_delta)
+                    except TypeError:
+                        response = await complete(messages, schemas)
             state.token_input += response.prompt_tokens
             state.token_output += response.completion_tokens
             calls = [
@@ -362,6 +374,11 @@ async def _bridge_l1_event(
         arguments = pending_args.pop(call_id, {})
         await on_event(tool_event(name, "ok" if ok else "error", preview=preview))
         state.tool_history.append(ToolRecord(name=name, arguments=arguments, output=preview, ok=ok))
+        return
+    if kind == "llm_delta":
+        text = str(event.get("text") or "")
+        if text:
+            await on_event(content_delta_event(text))
         return
     if kind == "error":
         await on_event(error_event(str(event.get("message") or "error")))

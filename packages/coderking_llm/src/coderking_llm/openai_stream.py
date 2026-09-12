@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -81,8 +82,13 @@ async def complete_chat_streaming(
     payload: dict[str, Any],
     policy: RetryPolicy | None = None,
     should_abort: Callable[[], bool] | None = None,
+    on_delta: Callable[[str], None] | None = None,
 ) -> AssembledResponse:
-    """Stream then assemble; retries only apply to connection/setup failures."""
+    """Stream then assemble; retries only apply to connection/setup failures.
+
+    on_delta, when provided, is invoked with each content delta as it arrives
+    (token streaming for CLI display). It never affects the assembled result.
+    """
 
     async def once() -> AssembledResponse:
         chunks: list[StreamChunk] = []
@@ -94,6 +100,13 @@ async def complete_chat_streaming(
             should_abort=should_abort,
         ):
             chunks.append(chunk)
+            if on_delta is not None and chunk.type == "text_delta" and chunk.delta:
+                try:
+                    result = on_delta(chunk.delta)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:
+                    pass  # display callbacks must never break generation
         return assemble_stream_chunks(chunks)
 
     return await retry_async(once, policy=policy, should_abort=should_abort)

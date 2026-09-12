@@ -25,6 +25,11 @@ def tool_event(name: str, status: str, **extra: Any) -> AgentEvent:
     return AgentEvent("tool_call", {"tool": name, "status": status, **extra})
 
 
+def content_delta_event(text: str) -> AgentEvent:
+    """Incremental model output (token streaming) for live display."""
+    return AgentEvent("content_delta", {"text": text})
+
+
 def file_event(path: str, action: str) -> AgentEvent:
     return AgentEvent("file_change", {"file": path, "action": action})
 

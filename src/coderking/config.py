@@ -31,6 +31,14 @@ YAML_KEYS = (
     "sandbox_e2b_api_key",
     "sandbox_e2b_template",
     "max_iterations",
+    "context_window",
+    "compression_enabled",
+    "compression_threshold",
+    "compression_reserve_tokens",
+    "compression_keep_recent_messages",
+    "dynamic_tools_enabled",
+    "mcp_enabled",
+    "mcp_timeout_sec",
     "allow_commit",
 )
 
@@ -53,6 +61,14 @@ ENV_MAP = {
     "sandbox_e2b_api_key": "CODERKING_E2B_API_KEY",
     "sandbox_e2b_template": "CODERKING_E2B_TEMPLATE",
     "max_iterations": "CODERKING_MAX_ITERATIONS",
+    "context_window": "CODERKING_CONTEXT_WINDOW",
+    "compression_enabled": "CODERKING_COMPRESSION_ENABLED",
+    "compression_threshold": "CODERKING_COMPRESSION_THRESHOLD",
+    "compression_reserve_tokens": "CODERKING_COMPRESSION_RESERVE_TOKENS",
+    "compression_keep_recent_messages": "CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES",
+    "dynamic_tools_enabled": "CODERKING_DYNAMIC_TOOLS_ENABLED",
+    "mcp_enabled": "CODERKING_MCP_ENABLED",
+    "mcp_timeout_sec": "CODERKING_MCP_TIMEOUT_SEC",
     "allow_commit": "CODERKING_ALLOW_COMMIT",
 }
 
@@ -91,6 +107,14 @@ class Settings(BaseSettings):
     sandbox_e2b_template: str | None = None
 
     max_iterations: int = 24
+    context_window: int = Field(default=128_000, ge=1024)
+    compression_enabled: bool = True
+    compression_threshold: float = Field(default=0.75, gt=0, le=1)
+    compression_reserve_tokens: int = Field(default=4096, ge=0)
+    compression_keep_recent_messages: int = Field(default=20, ge=1)
+    dynamic_tools_enabled: bool = False
+    mcp_enabled: bool = False
+    mcp_timeout_sec: float = Field(default=60.0, gt=0, le=300)
     allow_commit: bool = False
     workspace: Path = Field(default_factory=lambda: Path.cwd())
 

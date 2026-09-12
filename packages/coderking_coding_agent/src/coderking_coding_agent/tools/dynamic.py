@@ -104,7 +104,7 @@ def scan_tool_manifests(workspace: Path) -> tuple[list[DynamicToolManifest], dic
             continue
         try:
             manifests.append(parse_tool_manifest(child, workspace))
-        except ToolValidationError as exc:
+        except (ToolValidationError, OSError, UnicodeError, yaml.YAMLError) as exc:
             errors[child.name] = str(exc)
     return manifests, errors
 

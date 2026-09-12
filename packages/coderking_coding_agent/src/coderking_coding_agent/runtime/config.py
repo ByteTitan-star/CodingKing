@@ -23,6 +23,24 @@ class RuntimeConfig:
     sandbox_cow: bool = False
     sandbox_timeout_sec: int = 120
     sandbox_rollback_on_interrupt: bool = False
+    context_window: int = 128_000
+    compression_enabled: bool = True
+    compression_threshold: float = 0.75
+    compression_reserve_tokens: int = 4096
+    compression_keep_recent_messages: int = 20
+
+
+@dataclass
+class RuntimeResources:
+    """One run's fully resolved tool surface and cleanup hook."""
+
+    tools: Mapping[str, Tool]
+    diagnostics: tuple[str, ...] = ()
+    close: Callable[[], Awaitable[None]] | None = None
+
+    async def aclose(self) -> None:
+        if self.close is not None:
+            await self.close()
 
 
 @dataclass(frozen=True)
@@ -33,7 +51,9 @@ class RuntimeBindings:
     create_sandbox: Callable[[Path, CowWorkspace | None], Awaitable[tuple[Sandbox, str]]]
     build_tools: Callable[[Path, Sandbox], Mapping[str, Tool]]
     cancel_requested: Callable[[Path, str], bool]
+    clear_cancel: Callable[[Path, str], None]
     persist_state: Callable[[Path, AgentState], None]
+    load_resources: Callable[[Path, Sandbox], Awaitable[RuntimeResources]] | None = None
     connect_mcp: Callable[[Path], Awaitable[Any]] | None = None
 
 

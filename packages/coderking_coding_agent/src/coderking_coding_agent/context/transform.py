@@ -39,10 +39,15 @@ class ContextCompressor:
         self.keep_recent_messages = keep_recent_messages
         self.summarize_timeout_sec = summarize_timeout_sec
 
-    async def transform(self, messages: Sequence[AgentMessage]) -> list[AgentMessage]:
+    async def transform(
+        self,
+        messages: Sequence[AgentMessage],
+        *,
+        force: bool = False,
+    ) -> list[AgentMessage]:
         msgs = list(messages)
         before = estimate_messages_tokens(msgs)
-        if not self.budget.should_compress(before):
+        if not force and not self.budget.should_compress(before):
             return msgs
 
         compressed, summary = phase_a_compress(msgs, keep_recent_messages=self.keep_recent_messages)
@@ -64,16 +69,25 @@ class ContextCompressor:
                         files_touched=list(
                             structured.get("files_touched") or summary.files_touched
                         ),
+                        active_skills=list(
+                            structured.get("active_skills") or summary.active_skills
+                        ),
                     )
                     compressed = [
                         compression_summary_message(summary, structured=structured),
                         *compressed[1:],
                     ]
-            except (TimeoutError, Exception):
-                pass
+            except Exception as exc:
+                if self.emit is not None:
+                    await self.emit(
+                        {
+                            "type": "context_compression_fallback",
+                            "reason": str(exc),
+                        }
+                    )
 
         after = estimate_messages_tokens(compressed)
-        if self.emit is not None:
+        if self.emit is not None and after < before:
             await self.emit(
                 {
                     "type": "context_compressed",
@@ -83,7 +97,7 @@ class ContextCompressor:
                 }
             )
 
-        if self.session_repo is not None:
+        if self.session_repo is not None and after < before:
             summary_msg = (
                 compressed[0] if compressed and compressed[0].meta.get("compression") else None
             )

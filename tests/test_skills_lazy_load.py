@@ -60,6 +60,13 @@ def test_matcher_misses_unrelated_prompt(tmp_path: Path) -> None:
     assert hits == []
 
 
+def test_matcher_supports_explicit_dollar_invocation_without_triggers(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "release", [])
+    registry = SkillRegistry(tmp_path, include_cursor=False)
+    hits = SkillMatcher(registry).match("Use $release for this task")
+    assert [item.name for item in hits] == ["release"]
+
+
 def test_inject_once_per_session(tmp_path: Path) -> None:
     _write_skill(tmp_path, "swe-repair", ["pytest"])
     messages = [
@@ -127,10 +134,54 @@ def test_low_false_positive_prompts(tmp_path: Path, prompt: str) -> None:
     assert hits == []
 
 
+def test_registry_discovers_nested_global_skills(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    global_root = tmp_path / "global-skills"
+    workspace.mkdir()
+    skill_dir = global_root / "engineering" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code safely\n---\nReview instructions.\n",
+        encoding="utf-8",
+    )
+    registry = SkillRegistry(
+        workspace,
+        include_cursor=False,
+        include_global=True,
+        global_root=global_root,
+    )
+    manifest = registry.get("review")
+    assert manifest is not None
+    assert manifest.source == "global"
+
+
 class _CaptureLLM:
     async def complete(self, messages, tools, cancel=None) -> LLMResponse:  # noqa: ANN001, ARG002
         self.messages = list(messages)
         return LLMResponse("done", [])
+
+
+async def _async_none() -> None:
+    return None
+
+
+@pytest.mark.asyncio
+async def test_loop_explicitly_injects_skill_without_triggers(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "release", [], body="Always produce a release checklist.")
+    llm = _CaptureLLM()
+    runtime = AgentRuntime(
+        Settings(openai_api_key="x", sandbox_mode="local", workspace=tmp_path, max_iterations=1),
+        llm,
+    )
+    state = await runtime.run(
+        "prepare version",
+        tmp_path,
+        on_event=lambda _event: _async_none(),
+        auto_approve=True,
+        skill_names=["release"],
+    )
+    assert any('<skill name="release">' in str(m.get("content")) for m in state.messages)
+    assert any("release checklist" in str(m.get("content")) for m in llm.messages)
 
 
 @pytest.mark.asyncio

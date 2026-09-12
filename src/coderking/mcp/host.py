@@ -50,13 +50,17 @@ class McpHost:
     ) -> McpHost:
         host = cls()
         cfg = config if config is not None else load_mcp_config(workspace)
-        for server in cfg.selected():
-            session = McpStdioSession(server, timeout_sec=timeout_sec)
-            await session.start()
-            host._sessions.append(session)
-            for info in session.tools:
-                tool = McpTool(info, session)
-                host._tools[tool.name] = tool
+        try:
+            for server in cfg.selected():
+                session = McpStdioSession(server, timeout_sec=timeout_sec)
+                await session.start()
+                host._sessions.append(session)
+                for info in session.tools:
+                    tool = McpTool(info, session)
+                    host._tools[tool.name] = tool
+        except Exception:
+            await host.close()
+            raise
         return host
 
     def tools(self) -> dict[str, Tool]:

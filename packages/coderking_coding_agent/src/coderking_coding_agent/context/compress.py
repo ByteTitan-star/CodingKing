@@ -96,8 +96,15 @@ def phase_a_compress(
     if keep_recent_messages <= 0 or len(messages) <= keep_recent_messages:
         return list(messages), CompressionSummary()
 
-    early = messages[:-keep_recent_messages]
-    recent = messages[-keep_recent_messages:]
+    keep_from = len(messages) - keep_recent_messages
+    # Never split an assistant tool-call group from its tool results. Starting
+    # the retained tail at a user turn keeps provider role ordering valid.
+    while keep_from > 0 and messages[keep_from].role != "user":
+        keep_from -= 1
+    if keep_from <= 0:
+        return list(messages), CompressionSummary()
+    early = messages[:keep_from]
+    recent = messages[keep_from:]
     summary = _collect_summary(early)
     compression_msg = AgentMessage(
         role="system",

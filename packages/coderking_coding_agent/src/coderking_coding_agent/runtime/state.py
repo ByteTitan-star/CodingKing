@@ -55,6 +55,8 @@ class AgentState:
     iteration: int = 0
     token_input: int = 0
     token_output: int = 0
+    context_tokens_estimated: int = 0
+    compression_count: int = 0
     sandbox_backend: str = "unknown"
     sandbox_status: str = "idle"
     last_test_ok: bool | None = None

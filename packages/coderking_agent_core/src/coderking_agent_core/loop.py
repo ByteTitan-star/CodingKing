@@ -56,6 +56,7 @@ class AgentLoopConfig:
     should_stop_after_turn: ShouldStopFn | None = None
     max_turns: int = 24
     tool_execution: ToolExecutionMode = "parallel"
+    persist_context_transform: bool = False
     cancel: RunCancel | None = None
 
 
@@ -116,6 +117,8 @@ async def run_agent_loop(
             messages_for_llm = list(ctx.messages)
             if config.transform_context:
                 messages_for_llm = await config.transform_context(messages_for_llm)
+                if config.persist_context_transform:
+                    ctx.messages = list(messages_for_llm)
 
             llm_ctx = AgentContext(
                 system_prompt=ctx.system_prompt,

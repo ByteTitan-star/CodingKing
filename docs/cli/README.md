@@ -68,6 +68,10 @@ codeking             # 启动（会看到小男孩 + CNU 入场动画）
 | `codeking -r` | 交互式选择历史会话恢复（等于 `claude -r`） | ★★★ |
 | `codeking -r 2` | 直接恢复列表中第 2 个会话 | ★★ |
 | `codeking sessions` | 列出所有会话（时间/任务/消息数/token） | ★★ |
+| `codeking skills list` | 列出项目级/全局/Cursor 兼容 Skills | ★★ |
+| `codeking skills show <name>` | 查看 Skill 内容与来源 | ★★ |
+| `codeking skills check` | 校验 Skill 清单、重复名与 token 限制 | ★ |
+| `codeking tasks` | 列出当前工作区已持久化的任务 | ★★ |
 | `codeking run "任务"` | 一次性执行任务，不进交互 | ★★★ |
 | `codeking status` | 查看当前任务状态 | ★ |
 | `codeking stop <task_id>` | 取消运行中的任务 | ★ |
@@ -134,6 +138,11 @@ codeking test            # 自己再跑一遍测试确认
 | --- | --- |
 | `/exit` 或 `/quit` | 退出 |
 | `/new` | 立刻切换到新会话 |
+| `/skills` | 列出当前可用 Skills |
+| `/skill:<name>` | 为下一条消息启用指定 Skill |
+| `/skill:<name> 任务` | 用指定 Skill 立即执行任务 |
+| `/context` | 查看估算上下文、阈值和压缩次数 |
+| `/compact` | 立即压缩当前会话上下文 |
 | `Ctrl+C` | 中断当前运行（回到提示符）/ 退出 |
 | 任意文字（运行中） | 转向（steering）：停止当前方向，改做你新说的事 |
 
@@ -145,6 +154,7 @@ codeking test            # 自己再跑一遍测试确认
 | `--yes` | chat/new/run/tui | 自动批准危险操作（默认危险命令要人工确认） |
 | `--commit` | chat/new/run/tui | 允许代理执行 `git commit` |
 | `--test "<cmd>"` | chat/new/run | 给代理的推荐验证命令（软提示） |
+| `--skill <name>` | chat/new/run | 显式加载 Skill；可以重复指定 |
 
 危险命令（如 `rm -rf /`、`mkfs`）默认会被拦截并弹出确认，`--yes` 跳过。
 
@@ -162,6 +172,11 @@ codeking test            # 自己再跑一遍测试确认
 | `CODERKING_SANDBOX_TIMEOUT_SEC` | 单条命令超时（秒） | 120 |
 | `CODERKING_MAX_ITERATIONS` | 最大迭代轮数 | 24 |
 | `CODERKING_ALLOW_COMMIT` | 是否允许 git commit | false |
+| `CODERKING_CONTEXT_WINDOW` | 当前模型上下文窗口 | 128000 |
+| `CODERKING_COMPRESSION_ENABLED` | 是否自动压缩长会话 | true |
+| `CODERKING_COMPRESSION_THRESHOLD` | 窗口使用到该比例时压缩 | 0.75 |
+| `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为回复预留 token | 4096 |
+| `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时保护的最近消息数 | 20 |
 
 也可以用命令把模型配置写进项目（只存 base_url/model，不存 key）：
 
@@ -190,7 +205,8 @@ codeking init
 - `.coderking/config.yaml` — 模型/运行时配置
 - `.coderking/policy.yaml` — 工具审批策略（哪些操作要确认/直接拒绝）
 - `AGENTS.md` — 项目指令（代理每次启动自动读取，写编码规范、注意事项）
-- `.coderking/tools/browser_smoke/` — 自定义工具示例（manifest + main.py，写好即自动注册为代理的新工具）
+- `.coderking/tools/browser_smoke/` — 自定义工具示例；当前 loader 可校验/执行，Agent 自动注册列入 M1
+- `.coderking/skills/<name>/SKILL.md` — 项目级 Skill；也支持 `~/.coderking/skills/` 和 `~/.cursor/skills/`
 
 ## 13. 其他使用形态
 

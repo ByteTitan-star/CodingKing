@@ -1,8 +1,11 @@
 # MCP Setup
 
-CoderKing can load external [Model Context Protocol](https://modelcontextprotocol.io/)
-tools from `.coderking/mcp.json` and expose them to the agent as
-`mcp_{server}_{tool}` (default policy: **ask**).
+> 当前状态：MCP Client/Host 与独立连接测试已经实现，但 Agent Runtime 尚未合并 MCP
+> 工具；生产接线列入 [M1 资源与扩展系统](CoderKing-Implementation-Roadmap.md)。
+
+CoderKing 的 MCP Host 可以从 `.coderking/mcp.json` 加载外部
+[Model Context Protocol](https://modelcontextprotocol.io/) 工具，并将其命名为
+`mcp_{server}_{tool}`（默认策略：**ask**）。在 M1 完成前，这些工具不会自动出现在 Agent 工具集中。
 
 ## Config
 

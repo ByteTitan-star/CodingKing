@@ -69,11 +69,7 @@ def _compose(frame: int) -> Text:
 def play_splash(console: Console | None = None) -> bool:
     """Play the intro animation; returns False when skipped (non-TTY/CI/NO_SPLASH)."""
     console = console or Console()
-    if (
-        not console.is_terminal
-        or os.environ.get("CODEKING_NO_SPLASH")
-        or os.environ.get("CI")
-    ):
+    if not console.is_terminal or os.environ.get("CODEKING_NO_SPLASH") or os.environ.get("CI"):
         return False
     with Live(Align.center(_compose(0)), console=console, refresh_per_second=16) as live:
         for frame in range(FRAMES):

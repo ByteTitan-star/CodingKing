@@ -6,7 +6,7 @@ Do not share a session across threads or loops.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +65,12 @@ class AgentSession:
                 pass
         self._closed = True
 
-    async def run(self, prompt: str) -> AsyncIterator[Mapping[str, Any]]:
+    async def run(
+        self,
+        prompt: str,
+        *,
+        skills: Sequence[str] = (),
+    ) -> AsyncIterator[Mapping[str, Any]]:
         """Start a task and yield event records until the run completes."""
         if self._closed:
             raise RuntimeError("AgentSession is closed")
@@ -74,6 +79,7 @@ class AgentSession:
             self.workspace,
             auto_approve=self.auto_approve,
             test_command=self.test_command,
+            skill_names=skills,
         )
         self._task_id = managed.state.task_id
         async for record in self._controller.subscribe_records(self._task_id):

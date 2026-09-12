@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import typer
@@ -18,12 +19,16 @@ from coderking.config import config_yaml_path, load_settings, write_yaml_config
 from coderking.evalkit.loader import discover_tasks
 from coderking.evalkit.runner import run_suite, summarize, write_reports
 from coderking.llm.openai_compat import OpenAICompatProvider
+from coderking.mcp.config import load_mcp_config
+from coderking.mcp.host import McpHost
 from coderking.registry import (
     current_session_id,
     ensure_session,
     list_sessions,
+    list_tasks,
     load_current,
     load_session,
+    load_task,
     new_session_id,
     request_cancel,
     save_session,
@@ -34,6 +39,7 @@ from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
 from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
 from coderking.sandbox.local import LocalProcessSandbox
+from coderking.tools.registry import ATOMIC_TOOL_NAMES
 from coderking.ui.splash import play_splash
 from coderking.ui.theme import (
     BRAND_MARK,
@@ -44,10 +50,25 @@ from coderking.ui.theme import (
     print_state,
     spinner_label,
 )
+from coderking_agent_core.types import AgentMessage
+from coderking_coding_agent.context.budget import TokenBudget, estimate_messages_tokens
+from coderking_coding_agent.context.skills import SkillRegistry, parse_skill_file
+from coderking_coding_agent.context.transform import ContextCompressor
+from coderking_coding_agent.runtime.atomic_l1 import (
+    agent_message_from_dict,
+    agent_message_to_dict,
+)
+from coderking_coding_agent.tools.dynamic import scan_tool_manifests
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="CoderKing coding agent CLI")
 config_app = typer.Typer(no_args_is_help=True, help="Configure models and runtime")
+skills_app = typer.Typer(no_args_is_help=False, help="Inspect and validate available skills")
+tools_app = typer.Typer(no_args_is_help=False, help="Inspect optional dynamic tools")
+mcp_app = typer.Typer(no_args_is_help=False, help="Inspect and validate MCP servers")
 app.add_typer(config_app, name="config")
+app.add_typer(skills_app, name="skills")
+app.add_typer(tools_app, name="tools")
+app.add_typer(mcp_app, name="mcp")
 
 
 def _workspace(path: Path | None) -> Path:
@@ -70,6 +91,7 @@ def init(
     """Create .coderking/config.yaml, policy.yaml, and AGENTS.md template in the workspace."""
     root = _workspace(workspace)
     (root / ".coderking" / "memory").mkdir(parents=True, exist_ok=True)
+    (root / ".coderking" / "skills").mkdir(parents=True, exist_ok=True)
     tools_root = root / ".coderking" / "tools"
     tools_root.mkdir(parents=True, exist_ok=True)
     example = tools_root / "browser_smoke"
@@ -109,6 +131,199 @@ def init(
     console.print(f"initialized {root / '.coderking'}")
 
 
+def _available_skills(root: Path) -> SkillRegistry:
+    return SkillRegistry(root, include_cursor=True, include_global=True)
+
+
+def _print_skills(root: Path) -> None:
+    registry = _available_skills(root)
+    manifests = registry.manifests()
+    if not manifests:
+        console.print("[ck.dim]no skills found[/ck.dim]")
+        console.print("[ck.faint]add <workspace>/.coderking/skills/<name>/SKILL.md[/ck.faint]")
+        return
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("skill", style="ck.accent")
+    table.add_column("source", style="ck.dim")
+    table.add_column("description", overflow="ellipsis", max_width=60)
+    for manifest in manifests:
+        table.add_row(manifest.name, manifest.source, manifest.description)
+    console.print(table)
+    if registry.diagnostics():
+        console.print(
+            f"[ck.err]{len(registry.diagnostics())} invalid/duplicate skill definition(s); "
+            "run `codeking skills check`[/ck.err]"
+        )
+
+
+@skills_app.callback(invoke_without_command=True)
+def skills_root(ctx: typer.Context) -> None:
+    """List skills when no skills subcommand is provided."""
+    if ctx.invoked_subcommand is None:
+        _print_skills(Path.cwd().resolve())
+
+
+@skills_app.command("list")
+def skills_list(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List workspace, global, and Cursor-compatible skills."""
+    _print_skills(_workspace(workspace))
+
+
+@skills_app.command("show")
+def skills_show(
+    name: str = typer.Argument(..., help="Skill name"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Show one skill definition and its source path."""
+    registry = _available_skills(_workspace(workspace))
+    manifest = registry.get(name)
+    if manifest is None:
+        console.print(f"[ck.err]unknown skill: {name}[/ck.err]")
+        raise typer.Exit(1)
+    _, body = parse_skill_file(manifest.path.read_text(encoding="utf-8"))
+    console.print(f"[ck.brand]{manifest.name}[/ck.brand] [ck.dim]{manifest.path}[/ck.dim]")
+    console.print(Markdown(body))
+
+
+@skills_app.command("check")
+def skills_check(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Validate all discovered skill manifests."""
+    registry = _available_skills(_workspace(workspace))
+    diagnostics = registry.diagnostics()
+    if not diagnostics:
+        console.print(f"[ck.ok]{len(registry.manifests())} skill(s) valid[/ck.ok]")
+        return
+    for diagnostic in diagnostics:
+        console.print(f"[ck.err]• {diagnostic}[/ck.err]")
+    raise typer.Exit(1)
+
+
+def _print_tools(root: Path) -> None:
+    settings = load_settings(workspace=root)
+    manifests, errors = scan_tool_manifests(root)
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("tool", style="ck.accent")
+    table.add_column("source", style="ck.dim")
+    table.add_column("runtime")
+    for name in sorted(ATOMIC_TOOL_NAMES):
+        table.add_row(name, "atomic", "enabled")
+    for manifest in manifests:
+        status = "enabled" if settings.dynamic_tools_enabled else "disabled"
+        table.add_row(manifest.name, "workspace", status)
+    console.print(table)
+    if errors:
+        console.print(
+            f"[ck.err]{len(errors)} invalid dynamic tool definition(s); "
+            "run `codeking tools check`[/ck.err]"
+        )
+
+
+@tools_app.callback(invoke_without_command=True)
+def tools_root(ctx: typer.Context) -> None:
+    """List tools when no tools subcommand is provided."""
+    if ctx.invoked_subcommand is None:
+        _print_tools(Path.cwd().resolve())
+
+
+@tools_app.command("list")
+def tools_list(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List atomic and workspace dynamic tools."""
+    _print_tools(_workspace(workspace))
+
+
+@tools_app.command("check")
+def tools_check(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Validate workspace dynamic tool manifests and name conflicts."""
+    manifests, errors = scan_tool_manifests(_workspace(workspace))
+    diagnostics = dict(errors)
+    for manifest in manifests:
+        if manifest.name in ATOMIC_TOOL_NAMES:
+            diagnostics[manifest.name] = "name conflicts with an atomic tool"
+    if not diagnostics:
+        console.print(f"[ck.ok]{len(manifests)} dynamic tool(s) valid[/ck.ok]")
+        return
+    for name, message in sorted(diagnostics.items()):
+        console.print(f"[ck.err]• {name}: {message}[/ck.err]")
+    raise typer.Exit(1)
+
+
+def _print_mcp_servers(root: Path) -> None:
+    try:
+        config = load_mcp_config(root)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    settings = load_settings(workspace=root)
+    if not config.servers:
+        console.print("[ck.dim]no MCP servers configured[/ck.dim]")
+        return
+    allowed = set(config.allowlist)
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("server", style="ck.accent")
+    table.add_column("configured")
+    table.add_column("allowlisted")
+    table.add_column("runtime")
+    for server in config.servers:
+        table.add_row(
+            server.name,
+            "enabled" if server.enabled else "disabled",
+            "yes" if server.name in allowed else "no",
+            "enabled" if settings.mcp_enabled else "disabled",
+        )
+    console.print(table)
+
+
+@mcp_app.callback(invoke_without_command=True)
+def mcp_root(ctx: typer.Context) -> None:
+    """List MCP servers when no MCP subcommand is provided."""
+    if ctx.invoked_subcommand is None:
+        _print_mcp_servers(Path.cwd().resolve())
+
+
+@mcp_app.command("list")
+def mcp_list(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List configured MCP servers without starting them."""
+    _print_mcp_servers(_workspace(workspace))
+
+
+@mcp_app.command("check")
+def mcp_check(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    timeout: float = typer.Option(30.0, "--timeout", min=1, max=300),
+) -> None:
+    """Connect to allowlisted MCP servers, discover tools, then close them."""
+    root = _workspace(workspace)
+
+    async def check() -> list[str]:
+        host = await McpHost.connect(root, timeout_sec=timeout)
+        try:
+            return sorted(host.names())
+        finally:
+            await host.close()
+
+    try:
+        names = asyncio.run(check())
+    except Exception as exc:
+        console.print(f"[ck.err]MCP check failed: {exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    if not names:
+        console.print("[ck.dim]no allowlisted MCP servers/tools[/ck.dim]")
+        return
+    console.print(f"[ck.ok]{len(names)} MCP tool(s) available[/ck.ok]")
+    for name in names:
+        console.print(f"  {name}")
+
+
 @app.command()
 def rpc(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
@@ -124,12 +339,19 @@ def tui(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
     yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
     commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
+    dynamic_tools: bool = typer.Option(False, "--dynamic-tools"),
+    mcp: bool = typer.Option(False, "--mcp"),
 ) -> None:
     """Interactive Textual TUI (chat / tools / terminal panels)."""
     from coderking.tui_runner import run_interactive_tui
 
     root = _workspace(workspace)
-    settings = load_settings(workspace=root, allow_commit=commit)
+    settings = load_settings(
+        workspace=root,
+        allow_commit=commit,
+        dynamic_tools_enabled=True if dynamic_tools else None,
+        mcp_enabled=True if mcp else None,
+    )
     asyncio.run(run_interactive_tui(root, settings, auto_approve=yes))
 
 
@@ -144,16 +366,33 @@ def run(
         "--test",
         help="Preferred verification command (soft prompt hint for bash)",
     ),
+    skill: list[str] = typer.Option([], "--skill", help="Explicit skill to load (repeatable)"),
+    dynamic_tools: bool = typer.Option(False, "--dynamic-tools"),
+    mcp: bool = typer.Option(False, "--mcp"),
 ) -> None:
     """Run the agent against a repository (in-process Runtime, same as Web)."""
-    settings = load_settings(workspace=_workspace(workspace), allow_commit=commit)
+    settings = load_settings(
+        workspace=_workspace(workspace),
+        allow_commit=commit,
+        dynamic_tools_enabled=True if dynamic_tools else None,
+        mcp_enabled=True if mcp else None,
+    )
     print_banner(
         workspace=settings.resolved_workspace(),
         model=settings.model,
         sandbox=settings.sandbox_mode,
         interactive=False,
     )
-    asyncio.run(_run_task(prompt, settings, auto_approve=yes, resume=None, test_command=test))
+    asyncio.run(
+        _run_task(
+            prompt,
+            settings,
+            auto_approve=yes,
+            resume=None,
+            test_command=test,
+            skill_names=skill,
+        )
+    )
 
 
 @app.command()
@@ -177,10 +416,18 @@ def chat(
         "--resume-index",
         help="Resume the Nth session from `codeking sessions` directly",
     ),
+    skill: list[str] = typer.Option([], "--skill", help="Explicit skill to load (repeatable)"),
+    dynamic_tools: bool = typer.Option(False, "--dynamic-tools"),
+    mcp: bool = typer.Option(False, "--mcp"),
 ) -> None:
     """Interactive session that continues on the same workspace."""
     root = _workspace(workspace)
-    settings = load_settings(workspace=root, allow_commit=commit)
+    settings = load_settings(
+        workspace=root,
+        allow_commit=commit,
+        dynamic_tools_enabled=True if dynamic_tools else None,
+        mcp_enabled=True if mcp else None,
+    )
     session_id = current_session_id(root)
     if resume or resume_index is not None:
         picked = _resolve_resume(root, resume_index)
@@ -196,7 +443,7 @@ def chat(
         interactive=True,
         show_brand=not played,
     )
-    _chat_loop(root, settings, yes, test, session_id)
+    _chat_loop(root, settings, yes, test, session_id, skill)
 
 
 @app.command()
@@ -209,10 +456,18 @@ def new(
         "--test",
         help="Preferred verification command (soft prompt hint for bash)",
     ),
+    skill: list[str] = typer.Option([], "--skill", help="Explicit skill to load (repeatable)"),
+    dynamic_tools: bool = typer.Option(False, "--dynamic-tools"),
+    mcp: bool = typer.Option(False, "--mcp"),
 ) -> None:
     """Start a fresh session on the workspace (keeps old ones)."""
     root = _workspace(workspace)
-    settings = load_settings(workspace=root, allow_commit=commit)
+    settings = load_settings(
+        workspace=root,
+        allow_commit=commit,
+        dynamic_tools_enabled=True if dynamic_tools else None,
+        mcp_enabled=True if mcp else None,
+    )
     session_id = new_session_id(root)
     set_current_session_id(root, session_id)
     played = play_splash(console)
@@ -224,7 +479,7 @@ def new(
         show_brand=not played,
     )
     console.print(f"[ck.dim]new session {session_id}[/ck.dim]")
-    _chat_loop(root, settings, yes, test, session_id)
+    _chat_loop(root, settings, yes, test, session_id, skill)
 
 
 @app.command()
@@ -300,9 +555,17 @@ def _read_input() -> str:
     return console.input("[ck.accent]❯ [/]").strip()
 
 
-def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: str) -> None:
+def _chat_loop(
+    root: Path,
+    settings,
+    yes: bool,
+    test: str | None,
+    session_id: str,
+    skill_names: Sequence[str] = (),
+) -> None:
     session_id = ensure_session(root, session_id)
     state = _state_from_session(root, session_id)
+    pending_skills = list(skill_names)
     while True:
         try:
             prompt = _read_input()
@@ -320,38 +583,164 @@ def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: st
         if prompt == "/trace":
             _print_tool_trace(state)
             continue
+        if prompt == "/skills":
+            _print_skills(root)
+            continue
+        if prompt == "/context":
+            _print_context_status(state, settings)
+            continue
+        if prompt == "/reload":
+            _print_resource_summary(root, settings)
+            continue
+        if prompt.startswith("/compact"):
+            if state is None:
+                console.print("[ck.dim]current session has no context to compact[/ck.dim]")
+                continue
+            _compact_state(state, settings)
+            _save_chat_state(root, session_id, state)
+            continue
+        selected, rewritten = _parse_skill_command(prompt)
+        if selected is not None:
+            registry = _available_skills(root)
+            if registry.get(selected) is None:
+                console.print(f"[ck.err]unknown skill: {selected}[/ck.err]")
+                continue
+            if not rewritten:
+                if selected not in pending_skills:
+                    pending_skills.append(selected)
+                console.print(f"[ck.dim]skill {selected} will load with the next prompt[/ck.dim]")
+                continue
+            prompt = rewritten
+            if selected not in pending_skills:
+                pending_skills.append(selected)
         state = asyncio.run(
-            _run_task(prompt, settings, auto_approve=yes, resume=state, test_command=test)
+            _run_task(
+                prompt,
+                settings,
+                auto_approve=yes,
+                resume=state,
+                test_command=test,
+                skill_names=pending_skills,
+            )
         )
-        save_session(
-            root,
-            {
-                "task_id": state.task_id,
-                "prompt": state.task,
-                "status": state.status.value,
-                "role": state.role.value,
-                "messages": state.messages,
-                "snapshot": state.snapshot,
-                "changed_files": state.changed_files,
-                "plan": [{"title": i.title, "done": i.done} for i in state.plan],
-                "test_results": state.test_results,
-                "last_test_ok": state.last_test_ok,
-                "iteration": state.iteration,
-                "token_input": state.token_input,
-                "token_output": state.token_output,
-                "tool_history": [
-                    {
-                        "name": r.name,
-                        "arguments": r.arguments,
-                        "output": r.output,
-                        "ok": r.ok,
-                        "ts": r.ts,
-                    }
-                    for r in state.tool_history
-                ],
-            },
-            session_id=session_id,
-        )
+        _save_chat_state(root, session_id, state)
+
+
+def _parse_skill_command(prompt: str) -> tuple[str | None, str]:
+    if prompt.startswith("/skill:"):
+        command, _, rest = prompt.partition(" ")
+        return command.removeprefix("/skill:").strip() or None, rest.strip()
+    if prompt.startswith("/skill "):
+        parts = prompt.split(maxsplit=2)
+        return parts[1].strip() or None, parts[2].strip() if len(parts) == 3 else ""
+    return None, prompt
+
+
+def _print_resource_summary(root: Path, settings) -> None:
+    registry = _available_skills(root)
+    dynamic, dynamic_errors = scan_tool_manifests(root)
+    try:
+        mcp_servers = load_mcp_config(root).selected()
+        mcp_error = None
+    except Exception as exc:
+        mcp_servers = []
+        mcp_error = str(exc)
+    console.print("[ck.ok]resources refreshed for the next run[/ck.ok]")
+    console.print(f"  skills        {len(registry.manifests())}")
+    console.print(
+        f"  dynamic tools {len(dynamic)} "
+        f"({'enabled' if settings.dynamic_tools_enabled else 'disabled'})"
+    )
+    console.print(
+        f"  MCP servers   {len(mcp_servers)} ({'enabled' if settings.mcp_enabled else 'disabled'})"
+    )
+    diagnostic_count = len(registry.diagnostics()) + len(dynamic_errors) + int(bool(mcp_error))
+    if diagnostic_count:
+        console.print(f"[ck.err]{diagnostic_count} resource diagnostic(s)[/ck.err]")
+
+
+def _save_chat_state(root: Path, session_id: str, state: AgentState) -> None:
+    save_session(
+        root,
+        {
+            "task_id": state.task_id,
+            "prompt": state.task,
+            "status": state.status.value,
+            "role": state.role.value,
+            "messages": state.messages,
+            "snapshot": state.snapshot,
+            "changed_files": state.changed_files,
+            "plan": [{"title": item.title, "done": item.done} for item in state.plan],
+            "test_results": state.test_results,
+            "last_test_ok": state.last_test_ok,
+            "errors": state.errors,
+            "iteration": state.iteration,
+            "token_input": state.token_input,
+            "token_output": state.token_output,
+            "context_tokens_estimated": state.context_tokens_estimated,
+            "compression_count": state.compression_count,
+            "tool_history": [
+                {
+                    "name": record.name,
+                    "arguments": record.arguments,
+                    "output": record.output,
+                    "ok": record.ok,
+                    "ts": record.ts,
+                }
+                for record in state.tool_history
+            ],
+        },
+        session_id=session_id,
+    )
+
+
+def _context_budget(settings) -> TokenBudget:
+    return TokenBudget(
+        context_window=settings.context_window,
+        reserve_completion=settings.compression_reserve_tokens,
+        compress_threshold=settings.compression_threshold,
+    )
+
+
+def _state_context_messages(state: AgentState) -> list[AgentMessage]:
+    return [
+        agent_message_from_dict(message)
+        for index, message in enumerate(state.messages)
+        if not (index == 0 and message.get("role") == "system")
+    ]
+
+
+def _print_context_status(state: AgentState | None, settings) -> None:
+    messages = _state_context_messages(state) if state is not None else []
+    estimated = estimate_messages_tokens(messages)
+    budget = _context_budget(settings)
+    console.print(f"[ck.brand]{BRAND_MARK} context[/ck.brand]")
+    console.print(f"  estimated  {estimated} tokens")
+    console.print(f"  threshold  {budget.max_prompt_tokens} tokens")
+    console.print(f"  compressed {state.compression_count if state else 0} time(s)")
+
+
+def _compact_state(state: AgentState, settings) -> None:
+    messages = _state_context_messages(state)
+    before = estimate_messages_tokens(messages)
+    compressor = ContextCompressor(
+        budget=_context_budget(settings),
+        keep_recent_messages=settings.compression_keep_recent_messages,
+    )
+    compressed = asyncio.run(compressor.transform(messages, force=True))
+    after = estimate_messages_tokens(compressed)
+    if after >= before:
+        console.print("[ck.dim]context is already too short to compact safely[/ck.dim]")
+        return
+    primary = (
+        dict(state.messages[0])
+        if state.messages and state.messages[0].get("role") == "system"
+        else {"role": "system", "content": ""}
+    )
+    state.messages = [primary, *[agent_message_to_dict(message) for message in compressed]]
+    state.context_tokens_estimated = after
+    state.compression_count += 1
+    console.print(f"[ck.ok]context compacted: {before} → {after} estimated tokens[/ck.ok]")
 
 
 def _state_from_session(workspace: Path, session_id: str | None = None) -> AgentState | None:
@@ -380,9 +769,12 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         messages=list(raw.get("messages") or []),
         changed_files=list(raw.get("changed_files") or []),
         test_results=str(raw.get("test_results") or ""),
+        errors=list(raw.get("errors") or []),
         iteration=int(raw.get("iteration") or 0),
         token_input=int(raw.get("token_input") or 0),
         token_output=int(raw.get("token_output") or 0),
+        context_tokens_estimated=int(raw.get("context_tokens_estimated") or 0),
+        compression_count=int(raw.get("compression_count") or 0),
         last_test_ok=raw.get("last_test_ok"),
         snapshot=dict(raw.get("snapshot") or {}),
         tool_history=tool_history,
@@ -398,6 +790,7 @@ async def _run_task(
     auto_approve: bool,
     resume: AgentState | None,
     test_command: str | None = None,
+    skill_names: Sequence[str] = (),
 ) -> AgentState:
     cancel = CancellationToken()
     runtime = AgentRuntime(settings, OpenAICompatProvider(settings), cancel=cancel)
@@ -441,6 +834,10 @@ async def _run_task(
         elif event.type == "error":
             msg = str(payload.get("message", ""))[:100]
             lines.append(Text.from_markup(f"[ck.err]⏺ 错误[/ck.err] [ck.faint]{msg}[/ck.faint]"))
+        elif event.type == "context_compressed":
+            before = int(payload.get("before_tokens") or 0)
+            after = int(payload.get("after_tokens") or 0)
+            lines.append(Text.from_markup(f"[ck.dim]⏺ context {before} → {after} tokens[/ck.dim]"))
         elif event.type == "done":
             stream.clear()  # final reply is printed as Markdown below the Live
 
@@ -462,6 +859,7 @@ async def _run_task(
             auto_approve=auto_approve,
             test_command=test_command,
             state=resume,
+            skill_names=skill_names,
         )
     collapsed = _summarize_tools(state.tool_history)
     if collapsed:
@@ -520,29 +918,59 @@ def _last_assistant_text(messages: list[dict]) -> str:
 
 @app.command()
 def status(
+    task_id: str | None = typer.Argument(None, help="Task id; defaults to current"),
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
 ) -> None:
-    """Show the current task record."""
-    record = load_current(_workspace(workspace))
+    """Show the current task record or a persisted task by id."""
+    root = _workspace(workspace)
+    record = load_task(root, task_id) if task_id else load_current(root)
     if record is None:
-        console.print("[ck.dim]暂无任务记录[/ck.dim]")
-        raise typer.Exit(0)
-    console.print(f"[ck.brand]{BRAND_MARK} 当前任务[/ck.brand]")
+        console.print("[ck.err]task not found[/ck.err]")
+        raise typer.Exit(1 if task_id else 0)
+    console.print(f"[ck.brand]{BRAND_MARK} task[/ck.brand]")
     console.print(f"  [ck.dim]ID[/ck.dim]      {record.task_id}")
     console.print(f"  [ck.dim]任务[/ck.dim]    {record.prompt[:80]}")
     console.print(f"  [ck.dim]状态[/ck.dim]    {record.status}")
     console.print(f"  [ck.dim]文件[/ck.dim]    {len(record.changed_files)} 个变更")
     console.print(f"  [ck.dim]用量[/ck.dim]    {record.token_input} → {record.token_output} tokens")
+    console.print(
+        f"  [ck.dim]上下文[/ck.dim]  {record.context_tokens_estimated} tokens · "
+        f"压缩 {record.compression_count} 次"
+    )
+
+
+@app.command()
+def tasks(
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List persisted task records for the workspace."""
+    records = list_tasks(_workspace(workspace))
+    if not records:
+        console.print("[ck.dim]no task records[/ck.dim]")
+        return
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("task", style="ck.accent")
+    table.add_column("status")
+    table.add_column("turns", justify="right", style="ck.dim")
+    table.add_column("prompt", overflow="ellipsis", max_width=60)
+    for record in records:
+        table.add_row(record.task_id, record.status, str(record.iteration), record.prompt[:60])
+    console.print(table)
 
 
 @app.command()
 def stop(
-    task_id: str = typer.Argument(...),
+    task_id: str | None = typer.Argument(None, help="Task id; defaults to current"),
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
 ) -> None:
     """Request cancellation for a running task."""
-    request_cancel(_workspace(workspace), task_id)
-    console.print(f"cancel requested for {task_id}")
+    root = _workspace(workspace)
+    record = load_task(root, task_id) if task_id else load_current(root)
+    if record is None:
+        console.print("[ck.err]task not found[/ck.err]")
+        raise typer.Exit(1)
+    request_cancel(root, record.task_id)
+    console.print(f"cancel requested for {record.task_id}")
 
 
 @app.command()

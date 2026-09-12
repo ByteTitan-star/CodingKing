@@ -44,3 +44,10 @@ def test_format_done_to_chat() -> None:
 
 def test_format_terminal_strips_empty() -> None:
     assert format_agent_event({"type": "terminal", "payload": {"text": "  "}}) is None
+
+
+def test_format_resource_diagnostic_to_status() -> None:
+    formatted = format_agent_event(
+        {"type": "resource_diagnostic", "payload": {"message": "MCP unavailable"}}
+    )
+    assert formatted == ("status", "resource warning: MCP unavailable")

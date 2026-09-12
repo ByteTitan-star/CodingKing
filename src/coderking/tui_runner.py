@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from coderking.config import Settings
 from coderking.controller import TaskController
@@ -25,6 +26,7 @@ class ControllerTuiSession:
         self.auto_approve = auto_approve
         self.test_command = test_command
         self.controller = TaskController(settings)
+        self.session_id = f"tui-{uuid4().hex[:12]}"
 
     async def start(self, prompt: str) -> str:
         task = await self.controller.create_task(
@@ -32,6 +34,7 @@ class ControllerTuiSession:
             self.workspace,
             auto_approve=self.auto_approve,
             test_command=self.test_command,
+            session_id=self.session_id,
         )
         return task.state.task_id
 

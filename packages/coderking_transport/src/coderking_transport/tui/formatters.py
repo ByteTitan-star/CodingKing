@@ -73,6 +73,20 @@ def format_agent_event(record: dict[str, Any]) -> tuple[PanelName, str] | None:
     if event_type == "error":
         return "chat", f"[error] {payload.get('message', '')}"
 
+    if event_type == "resource_diagnostic":
+        return "status", f"resource warning: {payload.get('message', '')}"
+
+    if event_type == "context_micro_compacted":
+        before = payload.get("before_tokens", 0)
+        after = payload.get("after_tokens", 0)
+        count = payload.get("tool_results_compacted", 0)
+        return "status", f"context micro {before} → {after}; tool results={count}"
+
+    if event_type == "context_compressed":
+        before = payload.get("before_tokens", 0)
+        after = payload.get("after_tokens", 0)
+        return "status", f"context compressed {before} → {after}"
+
     if event_type in {"steer", "follow_up"}:
         content = str(payload.get("content") or "")
         return "chat", f"[{event_type}] {content}"

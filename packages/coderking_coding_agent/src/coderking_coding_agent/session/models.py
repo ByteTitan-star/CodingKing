@@ -7,7 +7,15 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
 
-SessionNodeKind = Literal["message", "compression", "branch_marker", "system"]
+SessionNodeKind = Literal[
+    "message",
+    "compression",
+    "run",
+    "checkpoint",
+    "branch_marker",
+    "audit",
+    "system",
+]
 
 
 def new_node_id() -> str:

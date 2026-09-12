@@ -28,6 +28,10 @@ class RuntimeConfig:
     compression_threshold: float = 0.75
     compression_reserve_tokens: int = 4096
     compression_keep_recent_messages: int = 20
+    micro_compaction_enabled: bool = True
+    micro_compaction_threshold: float = 0.5
+    micro_compaction_keep_recent_tool_results: int = 4
+    micro_compaction_min_output_chars: int = 2_000
 
 
 @dataclass

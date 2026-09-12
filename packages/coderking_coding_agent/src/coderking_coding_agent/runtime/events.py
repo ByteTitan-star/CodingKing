@@ -124,6 +124,22 @@ def context_compressed_event(
     )
 
 
+def context_micro_compacted_event(
+    before_tokens: int,
+    after_tokens: int,
+    *,
+    tool_results_compacted: int,
+) -> AgentEvent:
+    return AgentEvent(
+        "context_micro_compacted",
+        {
+            "before_tokens": before_tokens,
+            "after_tokens": after_tokens,
+            "tool_results_compacted": tool_results_compacted,
+        },
+    )
+
+
 def phase_change_event(*, phase: str, from_phase: str | None = None) -> AgentEvent:
     payload: dict[str, Any] = {"phase": phase}
     if from_phase is not None:

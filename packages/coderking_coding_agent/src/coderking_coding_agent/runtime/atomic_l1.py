@@ -22,12 +22,14 @@ from coderking_coding_agent.context.skills import (
     inject_named_skills,
 )
 from coderking_coding_agent.context.transform import ContextCompressor, make_transform_context
+from coderking_coding_agent.diffing import snapshot_workspace
 from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig, RuntimeResources
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
     content_delta_event,
     context_compressed_event,
+    context_micro_compacted_event,
     done_event,
     error_event,
     phase_change_event,
@@ -60,6 +62,7 @@ def wrap_phase1_tool(
     state: AgentState,
     approve: ApprovalFn | None,
     auto_approve: bool,
+    persist: Callable[[], None] | None = None,
 ) -> AgentTool:
     schema = tool.schema()
     fn = schema.get("function") or {}
@@ -86,11 +89,15 @@ def wrap_phase1_tool(
             return False, f"policy denied: {decision.reason}"
         if decision.action == PolicyAction.ASK and not auto_approve:
             state.status = TaskStatus.WAITING_APPROVAL
+            if persist is not None:
+                persist()
             await on_event(approval_event(decision.reason, tool.name, kwargs))
             allowed = False
             if approve is not None:
                 allowed = await approve(tool.name, decision.reason, kwargs)
             state.status = TaskStatus.RUNNING
+            if persist is not None:
+                persist()
             if not allowed:
                 return False, "user rejected the operation"
         result = await tool.execute(**kwargs)
@@ -204,8 +211,11 @@ class AtomicL1Runtime:
         state = state or AgentState(task=prompt, repository=str(source))
         state.task = prompt  # resumed sessions must reflect the current prompt
         state.status = TaskStatus.RUNNING
+        state.finished_at = None
         state.role = Role.CODING
         state.cancel_requested = False
+        if not state.snapshot:
+            state.snapshot = snapshot_workspace(source)
         self.bindings.persist_state(source, state)
         cow: CowWorkspace | None = None
         if self.config.sandbox_cow:
@@ -238,6 +248,7 @@ class AtomicL1Runtime:
                 state=state,
                 approve=approve,
                 auto_approve=auto_approve,
+                persist=lambda: self.bindings.persist_state(source, state),
             )
             for tool in phase1_tools.values()
         ]
@@ -310,6 +321,19 @@ class AtomicL1Runtime:
                         structured=dict(payload.get("structured") or {}),
                     )
                 )
+            elif kind == "context_micro_compacted":
+                before = int(payload.get("before_tokens") or 0)
+                after = int(payload.get("after_tokens") or 0)
+                compacted = int(payload.get("tool_results_compacted") or 0)
+                state.micro_compaction_count += 1
+                state.context_tokens_estimated = after
+                await on_event(
+                    context_micro_compacted_event(
+                        before,
+                        after,
+                        tool_results_compacted=compacted,
+                    )
+                )
             elif kind:
                 await on_event(AgentEvent(kind, payload))
 
@@ -321,6 +345,10 @@ class AtomicL1Runtime:
             ),
             emit=emit_compression,
             keep_recent_messages=self.config.compression_keep_recent_messages,
+            micro_compaction_enabled=self.config.micro_compaction_enabled,
+            micro_compaction_threshold=self.config.micro_compaction_threshold,
+            micro_keep_recent_tool_results=(self.config.micro_compaction_keep_recent_tool_results),
+            micro_min_output_chars=self.config.micro_compaction_min_output_chars,
         )
 
         async def complete_turn(ctx: AgentContext) -> TurnResult:
@@ -426,8 +454,19 @@ class AtomicL1Runtime:
                 await on_event(done_event(False, str(exc)))
         finally:
             if resources is not None:
-                await resources.aclose()
-            await sandbox.close()
+                try:
+                    await resources.aclose()
+                except Exception as exc:
+                    message = f"resource cleanup failed: {exc}"
+                    state.errors.append(message)
+                    await on_event(AgentEvent("resource_diagnostic", {"message": message}))
+            try:
+                await sandbox.close()
+            except Exception as exc:
+                message = f"sandbox cleanup failed: {exc}"
+                state.errors.append(message)
+                state.status = TaskStatus.FAILED
+                await on_event(error_event(message))
             state.sandbox_status = "idle"
             if cow is not None:
                 if state.status == TaskStatus.SUCCEEDED:

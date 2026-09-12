@@ -94,7 +94,7 @@ def scrub_env(
     source = dict(env if env is not None else os.environ)
     cleaned: dict[str, str] = {}
     for key, value in source.items():
-        if is_secret_env_name(key):
+        if is_secret_env_name(key) or contains_secret_marker(value):
             continue
         if allowlist_only and key not in SANDBOX_ENV_ALLOWLIST and not key.startswith("LC_"):
             continue

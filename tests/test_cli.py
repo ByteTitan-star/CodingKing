@@ -1,4 +1,6 @@
+import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -6,7 +8,7 @@ from typer.testing import CliRunner
 
 from coderking.cli import app
 from coderking.config import load_settings
-from coderking.registry import persist_state
+from coderking.registry import current_session_id, load_session, persist_state, save_session
 from coderking.runtime.state import AgentState, Role, TaskStatus
 
 runner = CliRunner()
@@ -31,6 +33,8 @@ def test_cli_help() -> None:
     assert "status" in out
     assert "skills" in out
     assert "tasks" in out
+    assert "tools" in out
+    assert "mcp" in out
 
 
 def test_run_help_exposes_test_soft_hint() -> None:
@@ -119,6 +123,8 @@ def test_init_config_status_stop(tmp_path: Path, monkeypatch) -> None:  # noqa: 
     stop = runner.invoke(app, ["stop", "abc123def456", "--workspace", str(tmp_path)])
     assert stop.exit_code == 0
     assert (tmp_path / ".coderking" / "cancels" / "abc123def456").is_file()
+    stopped = runner.invoke(app, ["status", "abc123def456", "--workspace", str(tmp_path)])
+    assert "cancelling" in stopped.stdout
 
 
 def test_eval_requires_api_key(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
@@ -158,3 +164,115 @@ def test_tasks_lists_persisted_records(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "task-first" in result.stdout
     assert "task-second" in result.stdout
+
+
+def test_tools_list_and_check_dynamic_manifest(tmp_path: Path) -> None:
+    tool_dir = tmp_path / ".coderking" / "tools" / "demo"
+    tool_dir.mkdir(parents=True)
+    (tool_dir / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    (tool_dir / "tool.yaml").write_text(
+        "name: demo\n"
+        "description: demo tool\n"
+        "entry: main.py\n"
+        "parameters:\n  type: object\n  properties: {}\n",
+        encoding="utf-8",
+    )
+
+    listed = runner.invoke(app, ["tools", "list", "--workspace", str(tmp_path)])
+    assert listed.exit_code == 0
+    assert "demo" in listed.stdout
+    assert "disabled" in listed.stdout
+    checked = runner.invoke(app, ["tools", "check", "--workspace", str(tmp_path)])
+    assert checked.exit_code == 0
+    assert "1 dynamic tool(s) valid" in checked.stdout
+
+
+def test_mcp_list_and_check_mock_server(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".coderking"
+    config_dir.mkdir()
+    (config_dir / "mcp.json").write_text(
+        json.dumps(
+            {
+                "allowlist": ["demo"],
+                "mcpServers": {
+                    "demo": {
+                        "command": sys.executable,
+                        "args": ["-m", "coderking.mcp.mock_server"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    listed = runner.invoke(app, ["mcp", "list", "--workspace", str(tmp_path)])
+    assert listed.exit_code == 0
+    assert "demo" in listed.stdout
+    checked = runner.invoke(app, ["mcp", "check", "--workspace", str(tmp_path)])
+    assert checked.exit_code == 0
+    assert "mcp_demo_echo" in checked.stdout
+
+
+def test_prepare_run_state_separates_task_from_session_context(tmp_path: Path) -> None:
+    from coderking.cli import _prepare_run_state
+
+    previous = AgentState(
+        task="first",
+        repository=str(tmp_path),
+        task_id="old-task",
+        session_id="session-1",
+        messages=[{"role": "user", "content": "first"}],
+        changed_files=["old.py"],
+    )
+
+    current = _prepare_run_state(
+        "second",
+        tmp_path,
+        previous,
+        session_id="session-1",
+    )
+
+    assert current.task_id != previous.task_id
+    assert current.session_id == "session-1"
+    assert current.messages == previous.messages
+    assert current.changed_files == []
+    assert current.snapshot == {}
+
+
+def test_session_tree_and_fork_commands(tmp_path: Path) -> None:
+    payload = {
+        "task_id": "source-task",
+        "session_id": "source-session",
+        "prompt": "source prompt",
+        "status": "succeeded",
+        "messages": [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world"},
+        ],
+    }
+    save_session(tmp_path, payload, session_id="source-session")
+
+    tree = runner.invoke(
+        app,
+        ["session", "tree", "source-session", "--workspace", str(tmp_path)],
+    )
+    assert tree.exit_code == 0
+    assert "message" in tree.stdout
+    assert "source prompt" in tree.stdout
+
+    forked = runner.invoke(
+        app,
+        [
+            "session",
+            "fork",
+            "--from",
+            "source-session",
+            "--name",
+            "forked-session",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+    assert forked.exit_code == 0
+    assert current_session_id(tmp_path) == "forked-session"
+    assert load_session(tmp_path, "forked-session")["messages"] == payload["messages"]

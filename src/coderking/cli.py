@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -32,6 +33,7 @@ from coderking.registry import (
     new_session_id,
     request_cancel,
     save_session,
+    session_jsonl_path,
     set_current_session_id,
 )
 from coderking.runtime.cancel import CancellationToken
@@ -58,6 +60,7 @@ from coderking_coding_agent.runtime.atomic_l1 import (
     agent_message_from_dict,
     agent_message_to_dict,
 )
+from coderking_coding_agent.session import SessionNode, SessionRepo
 from coderking_coding_agent.tools.dynamic import scan_tool_manifests
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="CoderKing coding agent CLI")
@@ -65,10 +68,12 @@ config_app = typer.Typer(no_args_is_help=True, help="Configure models and runtim
 skills_app = typer.Typer(no_args_is_help=False, help="Inspect and validate available skills")
 tools_app = typer.Typer(no_args_is_help=False, help="Inspect optional dynamic tools")
 mcp_app = typer.Typer(no_args_is_help=False, help="Inspect and validate MCP servers")
+session_app = typer.Typer(no_args_is_help=True, help="Inspect and branch session trees")
 app.add_typer(config_app, name="config")
 app.add_typer(skills_app, name="skills")
 app.add_typer(tools_app, name="tools")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(session_app, name="session")
 
 
 def _workspace(path: Path | None) -> Path:
@@ -515,6 +520,95 @@ def sessions(
     console.print(f"[ck.faint]{hint}[/ck.faint]")
 
 
+def _session_node_summary(node: SessionNode) -> str:
+    message = node.payload.get("message")
+    if isinstance(message, dict):
+        return str(message.get("content") or message.get("role") or "")[:70]
+    snapshot = node.payload.get("session_snapshot")
+    if isinstance(snapshot, dict):
+        return str(snapshot.get("prompt") or snapshot.get("status") or "")[:70]
+    if node.kind == "compression":
+        return f"replacement messages: {len(node.payload.get('messages') or [])}"
+    return str(node.payload.get("label") or "")[:70]
+
+
+@session_app.command("tree")
+def session_tree(
+    session_id: str | None = typer.Argument(None, help="Session id; defaults to current"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Show every node and which branch currently leads to HEAD."""
+    root = _workspace(workspace)
+    sid = session_id or current_session_id(root)
+    try:
+        repo = SessionRepo(root, session_id=sid)
+        active = {node.id for node in repo.walk_to_head()}
+    except (OSError, ValueError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("active")
+    table.add_column("node", style="ck.accent")
+    table.add_column("parent", style="ck.dim")
+    table.add_column("kind")
+    table.add_column("summary", overflow="ellipsis", max_width=70)
+    for node in repo.nodes():
+        table.add_row(
+            "*" if node.id in active else "",
+            node.id,
+            node.parent_id or "—",
+            node.kind,
+            _session_node_summary(node),
+        )
+    console.print(table)
+    console.print(f"[ck.dim]session={sid} head={repo.head_id}[/ck.dim]")
+
+
+@session_app.command("branch")
+def session_branch(
+    node_id: str = typer.Argument(..., help="Existing node id to make HEAD"),
+    session_id: str | None = typer.Option(None, "--session", help="Defaults to current"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Move a session's HEAD to a node without deleting either branch."""
+    root = _workspace(workspace)
+    sid = session_id or current_session_id(root)
+    try:
+        repo = SessionRepo(root, session_id=sid)
+        repo.branch_to(node_id)
+        set_current_session_id(root, sid)
+    except (KeyError, OSError, ValueError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    console.print(f"[ck.ok]session {sid} now points to {node_id}[/ck.ok]")
+
+
+@session_app.command("fork")
+def session_fork(
+    source: str | None = typer.Option(None, "--from", help="Source; defaults to current"),
+    name: str | None = typer.Option(None, "--name", help="New session id"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """Copy the active branch into a new independent session and switch to it."""
+    root = _workspace(workspace)
+    source_id = source or current_session_id(root)
+    target_id = name or new_session_id(root)
+    try:
+        state = load_session(root, source_id)
+        if not state:
+            raise ValueError(f"session {source_id!r} has no saved state")
+        target_path = session_jsonl_path(root, target_id)
+        if target_path.exists():
+            raise ValueError(f"session {target_id!r} already exists")
+        state["session_id"] = target_id
+        save_session(root, state, session_id=target_id)
+        set_current_session_id(root, target_id)
+    except (OSError, ValueError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    console.print(f"[ck.ok]forked {source_id} → {target_id}[/ck.ok]")
+
+
 def _resolve_resume(root: Path, index: int | None) -> str | None:
     """Return the session_id to resume, or None to cancel."""
     items = list_sessions(root)
@@ -621,6 +715,7 @@ def _chat_loop(
                 resume=state,
                 test_command=test,
                 skill_names=pending_skills,
+                session_id=session_id,
             )
         )
         _save_chat_state(root, session_id, state)
@@ -664,11 +759,11 @@ def _save_chat_state(root: Path, session_id: str, state: AgentState) -> None:
         root,
         {
             "task_id": state.task_id,
+            "session_id": state.session_id,
             "prompt": state.task,
             "status": state.status.value,
             "role": state.role.value,
             "messages": state.messages,
-            "snapshot": state.snapshot,
             "changed_files": state.changed_files,
             "plan": [{"title": item.title, "done": item.done} for item in state.plan],
             "test_results": state.test_results,
@@ -679,6 +774,11 @@ def _save_chat_state(root: Path, session_id: str, state: AgentState) -> None:
             "token_output": state.token_output,
             "context_tokens_estimated": state.context_tokens_estimated,
             "compression_count": state.compression_count,
+            "micro_compaction_count": state.micro_compaction_count,
+            "created_at": state.created_at,
+            "updated_at": state.updated_at,
+            "finished_at": state.finished_at,
+            "pid": state.pid,
             "tool_history": [
                 {
                     "name": record.name,
@@ -718,6 +818,7 @@ def _print_context_status(state: AgentState | None, settings) -> None:
     console.print(f"  estimated  {estimated} tokens")
     console.print(f"  threshold  {budget.max_prompt_tokens} tokens")
     console.print(f"  compressed {state.compression_count if state else 0} time(s)")
+    console.print(f"  micro      {state.micro_compaction_count if state else 0} time(s)")
 
 
 def _compact_state(state: AgentState, settings) -> None:
@@ -759,10 +860,14 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         for t in raw.get("tool_history") or []
         if isinstance(t, dict)
     ]
+    loaded_at = datetime.now(UTC).isoformat()
     state = AgentState(
         task=str(raw.get("prompt") or ""),
         repository=str(workspace),
         task_id=str(raw.get("task_id") or ""),
+        session_id=(
+            str(raw.get("session_id") or "") or session_id or current_session_id(workspace)
+        ),
         role=Role(raw.get("role") or "planner"),
         status=TaskStatus(raw.get("status") or "pending"),
         plan=plan,
@@ -775,9 +880,14 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         token_output=int(raw.get("token_output") or 0),
         context_tokens_estimated=int(raw.get("context_tokens_estimated") or 0),
         compression_count=int(raw.get("compression_count") or 0),
+        micro_compaction_count=int(raw.get("micro_compaction_count") or 0),
         last_test_ok=raw.get("last_test_ok"),
         snapshot=dict(raw.get("snapshot") or {}),
         tool_history=tool_history,
+        created_at=str(raw.get("created_at") or "") or loaded_at,
+        updated_at=str(raw.get("updated_at") or "") or loaded_at,
+        finished_at=str(raw.get("finished_at") or "") or None,
+        pid=int(raw.get("pid") or 0),
     )
     if not state.task_id:
         return None
@@ -791,6 +901,7 @@ async def _run_task(
     resume: AgentState | None,
     test_command: str | None = None,
     skill_names: Sequence[str] = (),
+    session_id: str | None = None,
 ) -> AgentState:
     cancel = CancellationToken()
     runtime = AgentRuntime(settings, OpenAICompatProvider(settings), cancel=cancel)
@@ -838,6 +949,19 @@ async def _run_task(
             before = int(payload.get("before_tokens") or 0)
             after = int(payload.get("after_tokens") or 0)
             lines.append(Text.from_markup(f"[ck.dim]⏺ context {before} → {after} tokens[/ck.dim]"))
+        elif event.type == "context_micro_compacted":
+            before = int(payload.get("before_tokens") or 0)
+            after = int(payload.get("after_tokens") or 0)
+            count = int(payload.get("tool_results_compacted") or 0)
+            lines.append(
+                Text.from_markup(
+                    f"[ck.dim]⏺ context micro {before} → {after} tokens "
+                    f"({count} tool results)[/ck.dim]"
+                )
+            )
+        elif event.type == "resource_diagnostic":
+            message = str(payload.get("message") or "resource loading issue")[:160]
+            lines.append(Text.from_markup(f"[ck.warn]⚠ {message}[/ck.warn]"))
         elif event.type == "done":
             stream.clear()  # final reply is printed as Markdown below the Live
 
@@ -851,6 +975,12 @@ async def _run_task(
             tick[0] += 1
             live.update(render())
 
+        run_state = _prepare_run_state(
+            prompt,
+            settings.resolved_workspace(),
+            resume,
+            session_id=session_id,
+        )
         state = await runtime.run(
             prompt,
             settings.resolved_workspace(),
@@ -858,7 +988,7 @@ async def _run_task(
             approve=None if auto_approve else approve,
             auto_approve=auto_approve,
             test_command=test_command,
-            state=resume,
+            state=run_state,
             skill_names=skill_names,
         )
     collapsed = _summarize_tools(state.tool_history)
@@ -874,6 +1004,24 @@ async def _run_task(
         reply_console.print(Markdown(reply))
         console.print()
     print_state(state)
+    return state
+
+
+def _prepare_run_state(
+    prompt: str,
+    workspace: Path,
+    previous: AgentState | None,
+    *,
+    session_id: str | None,
+) -> AgentState:
+    """Create a distinct task/run while carrying only session-level context."""
+    state = AgentState(task=prompt, repository=str(workspace), session_id=session_id)
+    if previous is None:
+        return state
+    state.messages = [dict(message) for message in previous.messages]
+    state.context_tokens_estimated = previous.context_tokens_estimated
+    state.compression_count = previous.compression_count
+    state.micro_compaction_count = previous.micro_compaction_count
     return state
 
 
@@ -931,11 +1079,13 @@ def status(
     console.print(f"  [ck.dim]ID[/ck.dim]      {record.task_id}")
     console.print(f"  [ck.dim]任务[/ck.dim]    {record.prompt[:80]}")
     console.print(f"  [ck.dim]状态[/ck.dim]    {record.status}")
+    if record.session_id:
+        console.print(f"  [ck.dim]会话[/ck.dim]    {record.session_id}")
     console.print(f"  [ck.dim]文件[/ck.dim]    {len(record.changed_files)} 个变更")
     console.print(f"  [ck.dim]用量[/ck.dim]    {record.token_input} → {record.token_output} tokens")
     console.print(
         f"  [ck.dim]上下文[/ck.dim]  {record.context_tokens_estimated} tokens · "
-        f"压缩 {record.compression_count} 次"
+        f"压缩 {record.compression_count} 次 · 微压缩 {record.micro_compaction_count} 次"
     )
 
 
@@ -969,6 +1119,9 @@ def stop(
     if record is None:
         console.print("[ck.err]task not found[/ck.err]")
         raise typer.Exit(1)
+    if record.status in {"succeeded", "failed", "interrupted"}:
+        console.print(f"[ck.dim]task {record.task_id} is already {record.status}[/ck.dim]")
+        return
     request_cancel(root, record.task_id)
     console.print(f"cancel requested for {record.task_id}")
 

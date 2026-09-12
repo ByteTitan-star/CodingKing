@@ -70,6 +70,14 @@ CLI/API/SDK 共用同一工具面；M1B 的通用扩展生命周期与扩展状�
 
 ### M2：会话、任务与执行状态
 
+状态：M2A 与 M2B 核心链路已完成——`session_id`、`run_id/task_id`、`turn_id` 已分离，
+JSONL 保存消息增量与 run 节点，具备 tree/fork/branch、任务列表/取消/retry、approval
+状态持久化、孤儿任务恢复，以及二进制安全且拒绝不完整基线的工作区回滚。任务 JSON
+仍是事实源，SQLite 提供可重建的查询索引、事件游标和进程租约；SDK 连续 `run()` 会保留
+同一会话上下文并创建子 run。直接文件写工具已接入 prepared → applied/failed →
+accepted/rolled_back checkpoint，回滚前会校验文件未被后续修改。M2 剩余项是 session
+label/delete 与面向后台 worker 的独立心跳；`bash` 的任意副作用仍由整任务快照兜底。
+
 目标：把“会话上下文”和“一次执行任务”拆成两个明确生命周期。
 
 - 使用独立的 `session_id`、`run_id/task_id`、`turn_id`，不再跨多轮复用一个 task ID。
@@ -81,7 +89,14 @@ CLI/API/SDK 共用同一工具面；M1B 的通用扩展生命周期与扩展状�
 
 验收：杀掉进程后重新启动，能解释上一次停在哪里、恢复上下文并安全重试；分支不会破坏原路径。
 
+当前未完成边界：CLI 进程内任务已在每次持久化时续租，但长时间无事件的后台 worker
+心跳属于 M5；checkpoint 只自动包裹可识别的直接文件写工具，不承诺拆解任意 shell 命令。
+
 ### M3：可插拔上下文引擎
+
+状态：M3A 已完成——在原有批量/手动压缩前加入可配置 micro-compaction，旧的大型工具
+结果会保留调用配对、最近结果、错误摘要与内容哈希，并通过事件、任务状态和 CLI/TUI
+暴露压缩次数。统一 `ContextEngine`、provider token、模型注册表与辅助压缩模型属于 M3B。
 
 目标：从启发式裁剪升级为可观测、可替换、不会破坏工具消息配对的上下文管理。
 

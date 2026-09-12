@@ -8,7 +8,10 @@ from coderking_sdk import AgentSession
 async with AgentSession(workspace=".", model="gpt-4o-mini") as session:
     async for event in session.run("fix the failing tests", skills=["testing"]):
         print(event["type"], event.get("payload"))
-    await session.steer("also update README")
+    first_run_id = session.run_id
+    async for event in session.run("also update README"):
+        print(event["type"], event.get("payload"))
+    assert session.run_id != first_run_id
 ```
 
 ## Install
@@ -29,6 +32,8 @@ pip install coderking-sdk
 
 - One `AgentSession` ↔ **one asyncio event loop**
 - Not safe to call the same session from multiple threads
+- Runs on one session are sequential; starting a second run while one is active raises an error
+- Each `run()` gets a distinct run/task ID and keeps the completed transcript from the prior run
 - Jupyter: use the notebook's running loop (`await` in cells)
 - FastAPI: create/use the session inside async route handlers on the app loop
 

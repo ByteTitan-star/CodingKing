@@ -54,6 +54,9 @@ CoderKing 已经具备一个可运行的 Pi 风格最小内核：分层 LLM 适�
 
 ### M1：资源与扩展系统
 
+状态：M1A 已完成——动态工具与 MCP 已通过 fail-closed `ResourceLoader` 接入运行时，
+CLI/API/SDK 共用同一工具面；M1B 的通用扩展生命周期与扩展状态节点待实施。
+
 目标：在不破坏四原子工具默认面的前提下，完成可选扩展闭环。
 
 - 引入统一 `ResourceLoader`：project/global/package 三层加载 Skill、Prompt、Tool、Extension。

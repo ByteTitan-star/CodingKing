@@ -136,10 +136,13 @@ codeking run "修复失败的单元测试" -w .    # 一次性任务
 codeking status && codeking diff && codeking test
 codeking skills list
 codeking run --skill code-review "审查当前改动"
+codeking tools check && codeking run --dynamic-tools "调用项目自定义工具"
+codeking mcp check && codeking run --mcp "调用 allowlisted MCP 工具"
 codeking eval --path eval/tasks --report-dir eval/reports
 ```
 
-会话内：`/new` 新会话 · `/trace` 展开折叠的工具轨迹 · `/exit` 退出；斜杠命令带描述自动补全；模型回复逐 token 流式输出并按 Markdown 渲染，工具过程折叠为一行摘要。
+会话内：`/new` 新会话 · `/trace` 展开折叠的工具轨迹 · `/skills` 查看技能 ·
+`/context`/`/compact` 管理长上下文 · `/reload` 重扫资源 · `/exit` 退出；斜杠命令带描述自动补全；模型回复逐 token 流式输出并按 Markdown 渲染，工具过程折叠为一行摘要。
 
 配置优先级：shell 环境变量 > 项目 `.env` > `~/.coderking/.env` > `.coderking/config.yaml` > 默认值。API Key 只走环境变量，勿写入 yaml 或提交 Git。
 
@@ -172,6 +175,9 @@ cd web && npm install && npm run dev
 | `CODERKING_COMPRESSION_THRESHOLD` | 触发压缩的窗口比例（默认 0.75） |
 | `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为模型回复预留的 token（默认 4096） |
 | `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时至少保留的最近消息数（默认 20） |
+| `CODERKING_DYNAMIC_TOOLS_ENABLED` | 显式启用项目动态工具（默认 false） |
+| `CODERKING_MCP_ENABLED` | 显式启用 allowlisted MCP 工具（默认 false） |
+| `CODERKING_MCP_TIMEOUT_SEC` | MCP 初始化/调用超时（默认 60 秒） |
 
 若上游 API 不支持 `thinking` 字段，客户端会自动去掉该字段并重试一次。
 

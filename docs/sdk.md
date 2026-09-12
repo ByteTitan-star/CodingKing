@@ -6,7 +6,7 @@ In-process programmatic API — **no HTTP / RPC server**.
 from coderking_sdk import AgentSession
 
 async with AgentSession(workspace=".", model="gpt-4o-mini") as session:
-    async for event in session.run("fix the failing tests"):
+    async for event in session.run("fix the failing tests", skills=["testing"]):
         print(event["type"], event.get("payload"))
     await session.steer("also update README")
 ```
@@ -36,13 +36,15 @@ pip install coderking-sdk
 
 | Method | Role |
 |--------|------|
-| `run(prompt)` | Start task; async-iterate event records |
+| `run(prompt, skills=())` | Start task with optional explicit Skills; async-iterate event records |
 | `steer(text)` | Inject mid-run steering |
 | `follow_up(text)` | Queue follow-up after current turn |
 | `abort()` | Cancel the active task |
 | `status()` | Public task snapshot dict |
 
 Optional constructor args: `settings`, `llm` (tests/injection), `auto_approve`, `test_command`.
+Optional resources are controlled by the shared `Settings` fields `dynamic_tools_enabled` and
+`mcp_enabled`; both default to `False`.
 
 ## Examples
 

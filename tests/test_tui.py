@@ -51,3 +51,17 @@ def test_format_resource_diagnostic_to_status() -> None:
         {"type": "resource_diagnostic", "payload": {"message": "MCP unavailable"}}
     )
     assert formatted == ("status", "resource warning: MCP unavailable")
+
+
+def test_format_micro_compaction_to_status() -> None:
+    formatted = format_agent_event(
+        {
+            "type": "context_micro_compacted",
+            "payload": {
+                "before_tokens": 8_000,
+                "after_tokens": 3_000,
+                "tool_results_compacted": 5,
+            },
+        }
+    )
+    assert formatted == ("status", "context micro 8000 → 3000; tool results=5")

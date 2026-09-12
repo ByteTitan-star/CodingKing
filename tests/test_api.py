@@ -39,6 +39,21 @@ def test_diff_and_rollback_routes(tmp_path: Path) -> None:
     assert stop.status_code == 200
 
 
+def test_rollback_without_baseline_is_rejected(tmp_path: Path) -> None:
+    controller = TaskController()
+    state = AgentState(task="x", repository=str(tmp_path))
+    from coderking.controller import ManagedTask
+
+    controller.tasks[state.task_id] = ManagedTask(state=state, workspace=tmp_path)
+    (tmp_path / "keep.txt").write_text("safe", encoding="utf-8")
+    client = TestClient(create_app(controller))
+
+    response = client.post(f"/api/tasks/{state.task_id}/rollback")
+
+    assert response.status_code == 409
+    assert (tmp_path / "keep.txt").is_file()
+
+
 def test_api_token_required_when_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

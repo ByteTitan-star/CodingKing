@@ -18,6 +18,7 @@ class Role(StrEnum):
 class TaskStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
+    CANCELLING = "cancelling"
     WAITING_APPROVAL = "waiting_approval"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -44,6 +45,7 @@ class AgentState:
     task: str
     repository: str
     task_id: str = field(default_factory=lambda: uuid4().hex[:12])
+    session_id: str | None = None
     role: Role = Role.PLANNER
     status: TaskStatus = TaskStatus.PENDING
     plan: list[PlanItem] = field(default_factory=list)
@@ -57,12 +59,17 @@ class AgentState:
     token_output: int = 0
     context_tokens_estimated: int = 0
     compression_count: int = 0
+    micro_compaction_count: int = 0
     sandbox_backend: str = "unknown"
     sandbox_status: str = "idle"
     last_test_ok: bool | None = None
     repair_count: int = 0
     snapshot: dict[str, str | None] = field(default_factory=dict)
     cancel_requested: bool = False
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    finished_at: str | None = None
+    pid: int = 0
 
     def mark_file(self, rel: str) -> None:
         if rel not in self.changed_files:

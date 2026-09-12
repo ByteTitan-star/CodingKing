@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from coderking.config import Settings, load_settings
 from coderking.controller import TaskController
@@ -43,10 +44,15 @@ class AgentSession:
         self.test_command = test_command
         self._controller = TaskController(settings, llm=llm)
         self._task_id: str | None = None
+        self.session_id = f"sdk-{uuid4().hex[:12]}"
         self._closed = False
 
     @property
     def task_id(self) -> str | None:
+        return self._task_id
+
+    @property
+    def run_id(self) -> str | None:
         return self._task_id
 
     async def __aenter__(self) -> AgentSession:
@@ -80,6 +86,7 @@ class AgentSession:
             auto_approve=self.auto_approve,
             test_command=self.test_command,
             skill_names=skills,
+            session_id=self.session_id,
         )
         self._task_id = managed.state.task_id
         async for record in self._controller.subscribe_records(self._task_id):

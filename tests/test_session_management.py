@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -63,6 +64,59 @@ def test_save_and_load_honour_explicit_session_id(tmp_path: Path) -> None:
     assert load_session(tmp_path, "s-20260911-120000")["prompt"] == "修复测试"
     # default session is untouched
     assert load_session(tmp_path, "default") == {}
+
+
+def test_save_session_appends_message_deltas_and_run_nodes(tmp_path: Path) -> None:
+    session_id = "s-delta"
+    first = _snap("first")
+    first["messages"] = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "answer"},
+    ]
+    second = _snap("second")
+    second["task_id"] = "t2"
+    second["messages"] = [
+        *first["messages"],
+        {"role": "user", "content": "second"},
+        {"role": "assistant", "content": "answer two"},
+    ]
+
+    save_session(tmp_path, first, session_id=session_id)
+    save_session(tmp_path, second, session_id=session_id)
+
+    loaded = load_session(tmp_path, session_id)
+    assert loaded["task_id"] == "t2"
+    assert loaded["messages"] == second["messages"]
+    jsonl = tmp_path / ".coderking" / "sessions" / f"{session_id}.jsonl"
+    lines = [json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines()]
+    assert sum(line["kind"] == "message" for line in lines) == 4
+    assert sum(line["kind"] == "run" for line in lines) == 2
+
+
+def test_save_session_records_context_rewrite_as_compression(tmp_path: Path) -> None:
+    session_id = "s-compressed"
+    first = _snap("first")
+    first["messages"] = [{"role": "user", "content": f"request {index}"} for index in range(6)]
+    compacted = _snap("continue")
+    compacted["task_id"] = "t2"
+    compacted["messages"] = [
+        {
+            "role": "system",
+            "content": "summary",
+            "meta": {"compression": True},
+        },
+        {"role": "user", "content": "continue"},
+    ]
+
+    save_session(tmp_path, first, session_id=session_id)
+    save_session(tmp_path, compacted, session_id=session_id)
+
+    assert load_session(tmp_path, session_id)["messages"] == compacted["messages"]
+    jsonl = tmp_path / ".coderking" / "sessions" / f"{session_id}.jsonl"
+    assert any(
+        json.loads(line)["kind"] == "compression"
+        for line in jsonl.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_load_session_follows_current_pointer(tmp_path: Path) -> None:

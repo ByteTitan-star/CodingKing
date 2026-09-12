@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -53,13 +54,14 @@ class McpHost:
         try:
             for server in cfg.selected():
                 session = McpStdioSession(server, timeout_sec=timeout_sec)
-                await session.start()
                 host._sessions.append(session)
+                await session.start()
                 for info in session.tools:
                     tool = McpTool(info, session)
                     host._tools[tool.name] = tool
         except Exception:
-            await host.close()
+            with suppress(Exception):
+                await host.close()
             raise
         return host
 
@@ -70,7 +72,13 @@ class McpHost:
         return frozenset(self._tools)
 
     async def close(self) -> None:
-        for session in self._sessions:
-            await session.close()
+        errors: list[Exception] = []
+        for session in reversed(self._sessions):
+            try:
+                await session.close()
+            except Exception as exc:  # close every session before surfacing cleanup failure
+                errors.append(exc)
         self._sessions.clear()
         self._tools.clear()
+        if errors:
+            raise RuntimeError(f"failed to close {len(errors)} MCP session(s)") from errors[0]

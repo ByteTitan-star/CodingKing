@@ -4,6 +4,8 @@ import json
 import time
 from pathlib import Path
 
+import pytest
+
 from coderking_coding_agent.session import SessionRepo, import_legacy_session
 
 
@@ -123,3 +125,9 @@ def test_registry_load_save_uses_jsonl(tmp_path: Path) -> None:
     assert registry.session_jsonl_path(tmp_path).is_file()
     loaded = registry.load_session(tmp_path)
     assert loaded.get("task_id") == "x"
+
+
+def test_session_id_cannot_escape_workspace(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="invalid session id"):
+        SessionRepo(tmp_path, session_id="../../outside")
+    assert not (tmp_path.parent / "outside.jsonl").exists()

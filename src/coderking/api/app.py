@@ -86,6 +86,7 @@ class TaskCreate(BaseModel):
     auto_approve: bool = False
     test_command: str | None = None
     skills: list[str] = Field(default_factory=list)
+    session_id: str | None = None
 
 
 class SteerBody(BaseModel):
@@ -138,6 +139,7 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             auto_approve=auto_approve,
             test_command=body.test_command,
             skill_names=body.skills,
+            session_id=body.session_id,
         )
         return ctrl.public_task(task.state.task_id)
 
@@ -176,6 +178,8 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
             return {"ok": True, "diff": ctrl.diff(task_id)}
         except KeyError as exc:
             raise HTTPException(404, "task not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/api/tasks/{task_id}/accept")
     async def accept_patch(task_id: str) -> dict:

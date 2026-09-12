@@ -19,6 +19,7 @@ SLASH_COMMANDS: dict[str, str] = {
     "/skill:": "显式启用 skill，例如 /skill:review 检查这次改动",
     "/context": "查看上下文估算和自动压缩阈值",
     "/compact": "立即压缩当前会话上下文",
+    "/reload": "重新扫描 skill、动态工具和 MCP 配置",
     "/exit": "退出会话（同 /quit 或 Ctrl+C）",
     "/quit": "退出会话",
 }

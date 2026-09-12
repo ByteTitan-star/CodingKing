@@ -13,6 +13,7 @@ from coderking_coding_agent.context.compress import (
     compression_summary_message,
     phase_a_compress,
 )
+from coderking_coding_agent.context.micro import micro_compact_tool_outputs
 from coderking_coding_agent.session.repo import SessionRepo
 
 EmitFn = Callable[[dict[str, Any]], Awaitable[None]]
@@ -31,6 +32,10 @@ class ContextCompressor:
         emit: EmitFn | None = None,
         keep_recent_messages: int = 20,
         summarize_timeout_sec: float = 30.0,
+        micro_compaction_enabled: bool = True,
+        micro_compaction_threshold: float = 0.5,
+        micro_keep_recent_tool_results: int = 4,
+        micro_min_output_chars: int = 2_000,
     ) -> None:
         self.budget = budget or TokenBudget()
         self.session_repo = session_repo
@@ -38,6 +43,10 @@ class ContextCompressor:
         self.emit = emit
         self.keep_recent_messages = keep_recent_messages
         self.summarize_timeout_sec = summarize_timeout_sec
+        self.micro_compaction_enabled = micro_compaction_enabled
+        self.micro_compaction_threshold = micro_compaction_threshold
+        self.micro_keep_recent_tool_results = micro_keep_recent_tool_results
+        self.micro_min_output_chars = micro_min_output_chars
 
     async def transform(
         self,
@@ -47,15 +56,63 @@ class ContextCompressor:
     ) -> list[AgentMessage]:
         msgs = list(messages)
         before = estimate_messages_tokens(msgs)
-        if not force and not self.budget.should_compress(before):
+        working = msgs
+        micro_after = before
+        micro_trigger = int(self.budget.max_prompt_tokens * self.micro_compaction_threshold)
+        if self.micro_compaction_enabled and not force and before >= micro_trigger:
+            working, compacted_count = micro_compact_tool_outputs(
+                msgs,
+                keep_recent_tool_results=self.micro_keep_recent_tool_results,
+                min_output_chars=self.micro_min_output_chars,
+            )
+            micro_after = estimate_messages_tokens(working)
+            if compacted_count and micro_after < before:
+                if self.emit is not None:
+                    await self.emit(
+                        {
+                            "type": "context_micro_compacted",
+                            "before_tokens": before,
+                            "after_tokens": micro_after,
+                            "tool_results_compacted": compacted_count,
+                        }
+                    )
+                if self.session_repo is not None:
+                    self.session_repo.append(
+                        "compression",
+                        {
+                            "strategy": "micro",
+                            "messages": [
+                                {
+                                    "role": message.role,
+                                    "content": message.content,
+                                    "tool_calls": message.tool_calls,
+                                    "tool_call_id": message.tool_call_id,
+                                    "name": message.name,
+                                    "meta": message.meta,
+                                }
+                                for message in working
+                            ],
+                            "before_tokens": before,
+                            "after_tokens": micro_after,
+                            "tool_results_compacted": compacted_count,
+                        },
+                    )
+
+        if not force and not self.budget.should_compress(micro_after):
+            return working
+        if force and not working:
+            return working
+        if not force and not self.budget.should_compress(before) and working == msgs:
             return msgs
 
-        compressed, summary = phase_a_compress(msgs, keep_recent_messages=self.keep_recent_messages)
+        compressed, summary = phase_a_compress(
+            working, keep_recent_messages=self.keep_recent_messages
+        )
 
         structured: dict[str, Any] | None = None
         if self.summarize is not None:
-            early_count = max(0, len(msgs) - self.keep_recent_messages)
-            early = msgs[:early_count]
+            early_count = max(0, len(working) - self.keep_recent_messages)
+            early = working[:early_count]
             try:
                 structured = await asyncio.wait_for(
                     self.summarize(early),

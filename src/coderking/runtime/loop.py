@@ -65,6 +65,12 @@ def _config_for(settings: Settings) -> RuntimeConfig:
         compression_threshold=settings.compression_threshold,
         compression_reserve_tokens=settings.compression_reserve_tokens,
         compression_keep_recent_messages=settings.compression_keep_recent_messages,
+        micro_compaction_enabled=settings.micro_compaction_enabled,
+        micro_compaction_threshold=settings.micro_compaction_threshold,
+        micro_compaction_keep_recent_tool_results=(
+            settings.micro_compaction_keep_recent_tool_results
+        ),
+        micro_compaction_min_output_chars=settings.micro_compaction_min_output_chars,
     )
 
 

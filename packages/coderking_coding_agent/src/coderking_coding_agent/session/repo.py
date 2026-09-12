@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,17 +15,26 @@ from coderking_coding_agent.session.models import (
     utc_now_iso,
 )
 
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def validate_session_id(session_id: str) -> str:
+    value = session_id.strip()
+    if not _SESSION_ID_RE.fullmatch(value):
+        raise ValueError("invalid session id; use letters, numbers, dot, dash, or underscore")
+    return value
+
 
 class SessionRepo:
     """Pi-style append-only session store: one JSON object per line, head pointer file."""
 
     def __init__(self, workspace: Path, *, session_id: str = "default") -> None:
         self.workspace = workspace.resolve()
-        self.session_id = session_id
+        self.session_id = validate_session_id(session_id)
         self._dir = self.workspace / ".coderking" / "sessions"
         self._dir.mkdir(parents=True, exist_ok=True)
-        self.jsonl_path = self._dir / f"{session_id}.jsonl"
-        self.head_path = self._dir / f"{session_id}.head"
+        self.jsonl_path = self._dir / f"{self.session_id}.jsonl"
+        self.head_path = self._dir / f"{self.session_id}.head"
         self._nodes: dict[str, SessionNode] = {}
         self._head_id: str | None = None
         self._load()
@@ -81,6 +91,10 @@ class SessionRepo:
         chain.reverse()
         return chain
 
+    def nodes(self) -> list[SessionNode]:
+        """Return every append-only node in file order, including inactive branches."""
+        return list(self._nodes.values())
+
     def materialize_messages(self) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         for node in self.walk_to_head():
@@ -89,6 +103,10 @@ class SessionRepo:
                 if isinstance(msg, dict):
                     messages.append(msg)
             elif node.kind == "compression":
+                replacement = node.payload.get("messages")
+                if isinstance(replacement, list):
+                    messages = [dict(item) for item in replacement if isinstance(item, dict)]
+                    continue
                 summary = node.payload.get("summary")
                 if isinstance(summary, dict):
                     messages.append(summary)

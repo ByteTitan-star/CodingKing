@@ -71,6 +71,8 @@ codeking             # 启动（会看到小男孩 + CNU 入场动画）
 | `codeking skills list` | 列出项目级/全局/Cursor 兼容 Skills | ★★ |
 | `codeking skills show <name>` | 查看 Skill 内容与来源 | ★★ |
 | `codeking skills check` | 校验 Skill 清单、重复名与 token 限制 | ★ |
+| `codeking tools list/check` | 列出或校验项目动态工具 | ★ |
+| `codeking mcp list/check` | 查看配置或实际探测 allowlisted MCP servers | ★ |
 | `codeking tasks` | 列出当前工作区已持久化的任务 | ★★ |
 | `codeking run "任务"` | 一次性执行任务，不进交互 | ★★★ |
 | `codeking status` | 查看当前任务状态 | ★ |
@@ -121,6 +123,8 @@ codeking new
 ```bash
 codeking run "给 utils/date.py 补充单元测试，覆盖边界情况"
 codeking run "修复失败测试" --test "python -m pytest -q"    # 附带推荐的验证命令
+codeking run "调用项目工具" --dynamic-tools               # 显式启用动态工具
+codeking run "调用 MCP" --mcp                             # 显式启用 allowlisted MCP
 ```
 
 ## 7. 任务控制
@@ -143,6 +147,7 @@ codeking test            # 自己再跑一遍测试确认
 | `/skill:<name> 任务` | 用指定 Skill 立即执行任务 |
 | `/context` | 查看估算上下文、阈值和压缩次数 |
 | `/compact` | 立即压缩当前会话上下文 |
+| `/reload` | 重新扫描 Skill、动态工具和 MCP 配置，显示下一轮资源状态 |
 | `Ctrl+C` | 中断当前运行（回到提示符）/ 退出 |
 | 任意文字（运行中） | 转向（steering）：停止当前方向，改做你新说的事 |
 
@@ -155,6 +160,8 @@ codeking test            # 自己再跑一遍测试确认
 | `--commit` | chat/new/run/tui | 允许代理执行 `git commit` |
 | `--test "<cmd>"` | chat/new/run | 给代理的推荐验证命令（软提示） |
 | `--skill <name>` | chat/new/run | 显式加载 Skill；可以重复指定 |
+| `--dynamic-tools` | chat/new/run/tui | 显式启用 `.coderking/tools` 动态工具 |
+| `--mcp` | chat/new/run/tui | 显式启用 allowlisted MCP servers |
 
 危险命令（如 `rm -rf /`、`mkfs`）默认会被拦截并弹出确认，`--yes` 跳过。
 
@@ -177,6 +184,9 @@ codeking test            # 自己再跑一遍测试确认
 | `CODERKING_COMPRESSION_THRESHOLD` | 窗口使用到该比例时压缩 | 0.75 |
 | `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为回复预留 token | 4096 |
 | `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时保护的最近消息数 | 20 |
+| `CODERKING_DYNAMIC_TOOLS_ENABLED` | 是否把项目动态工具合并进 Agent 工具面 | false |
+| `CODERKING_MCP_ENABLED` | 是否启动并合并 allowlisted MCP 工具 | false |
+| `CODERKING_MCP_TIMEOUT_SEC` | MCP 初始化和调用超时（秒） | 60 |
 
 也可以用命令把模型配置写进项目（只存 base_url/model，不存 key）：
 
@@ -205,7 +215,7 @@ codeking init
 - `.coderking/config.yaml` — 模型/运行时配置
 - `.coderking/policy.yaml` — 工具审批策略（哪些操作要确认/直接拒绝）
 - `AGENTS.md` — 项目指令（代理每次启动自动读取，写编码规范、注意事项）
-- `.coderking/tools/browser_smoke/` — 自定义工具示例；当前 loader 可校验/执行，Agent 自动注册列入 M1
+- `.coderking/tools/browser_smoke/` — 自定义工具示例；`--dynamic-tools` 显式启用后接入 Agent
 - `.coderking/skills/<name>/SKILL.md` — 项目级 Skill；也支持 `~/.coderking/skills/` 和 `~/.cursor/skills/`
 
 ## 13. 其他使用形态

@@ -63,9 +63,14 @@ async def test_agent_session_run_yields_events(tmp_path: Path) -> None:
         assert session.task_id is not None
         status = session.status()
         assert status["task_id"] == session.task_id
+        assert status["run_id"] == session.run_id
+        assert status["session_id"] == session.session_id
+        assert status["timing"]["finished_at"]
         assert status["status"] == "succeeded"
 
     assert any(e.get("type") == "done" for e in events)
+    assert session.task_id is not None
+    assert session.status()["status"] == "succeeded"
     assert sdk_version.startswith("1.")
 
 

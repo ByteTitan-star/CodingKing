@@ -4,10 +4,12 @@ from pathlib import Path
 import pytest
 
 from coderking.config import Settings
+from coderking.controller import ManagedTask, TaskController
 from coderking.llm.provider import LLMResponse
+from coderking.registry import cancel_requested, persist_state, request_cancel
 from coderking.runtime.cancel import CancellationToken, CancelledTask, wait_or_cancel
 from coderking.runtime.loop import AgentRuntime
-from coderking.runtime.state import TaskStatus
+from coderking.runtime.state import AgentState, TaskStatus
 
 
 @pytest.mark.asyncio
@@ -52,6 +54,42 @@ async def test_runtime_cancel_during_llm(tmp_path: Path) -> None:
         auto_approve=True,
     )
     assert state.status == TaskStatus.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_interrupt_releases_pending_approval(tmp_path: Path) -> None:
+    controller = TaskController(Settings(workspace=tmp_path, openai_api_key="x"))
+    state = AgentState(task="wait", repository=str(tmp_path), task_id="approval-wait")
+    managed = ManagedTask(state=state, workspace=tmp_path)
+    managed.approval = asyncio.get_running_loop().create_future()
+    controller.tasks[state.task_id] = managed
+
+    controller.interrupt(state.task_id)
+
+    assert managed.approval.done()
+    assert managed.approval.result() is False
+    assert state.status == TaskStatus.CANCELLING
+
+
+def test_interrupt_does_not_rewrite_terminal_state(tmp_path: Path) -> None:
+    controller = TaskController(Settings(workspace=tmp_path, openai_api_key="x"))
+    state = AgentState(task="done", repository=str(tmp_path), task_id="done-task")
+    state.status = TaskStatus.SUCCEEDED
+    controller.tasks[state.task_id] = ManagedTask(state=state, workspace=tmp_path)
+
+    controller.interrupt(state.task_id)
+
+    assert state.status == TaskStatus.SUCCEEDED
+
+
+def test_cancel_request_does_not_mark_terminal_task(tmp_path: Path) -> None:
+    state = AgentState(task="done", repository=str(tmp_path), task_id="terminal-task")
+    state.status = TaskStatus.SUCCEEDED
+    persist_state(tmp_path, state)
+
+    request_cancel(tmp_path, state.task_id)
+
+    assert not cancel_requested(tmp_path, state.task_id)
 
 
 async def _noop(event) -> None:  # noqa: ANN001, ARG001

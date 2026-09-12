@@ -154,5 +154,52 @@ async def test_runtime_exposes_allowlisted_mcp_tool_when_enabled(tmp_path: Path)
     )
 
 
+@pytest.mark.asyncio
+async def test_runtime_isolates_mcp_startup_failure(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / ".coderking"
+    cfg_dir.mkdir()
+    (cfg_dir / "mcp.json").write_text(
+        json.dumps(
+            {
+                "allowlist": ["missing"],
+                "mcpServers": {"missing": {"command": str(tmp_path / "does-not-exist")}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _LLM:
+        def __init__(self) -> None:
+            self.tools: list[dict] = []
+
+        async def complete(self, messages, tools, cancel=None):  # noqa: ANN001, ARG002
+            self.tools = list(tools)
+            return LLMResponse("done", [])
+
+    llm = _LLM()
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    settings = Settings(
+        openai_api_key="x",
+        workspace=tmp_path,
+        sandbox_mode="local",
+        mcp_enabled=True,
+    )
+    state = await AgentRuntime(settings, llm).run(
+        "continue without MCP",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+    )
+
+    names = {(tool.get("function") or {}).get("name") for tool in llm.tools}
+    assert names == {"read", "write", "edit", "bash"}
+    assert state.status == TaskStatus.SUCCEEDED
+    assert any(event.type == "resource_diagnostic" for event in events)
+
+
 async def _async_none() -> None:
     return None

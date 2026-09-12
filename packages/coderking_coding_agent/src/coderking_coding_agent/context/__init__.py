@@ -2,6 +2,7 @@
 
 from coderking_coding_agent.context.budget import TokenBudget, estimate_messages_tokens
 from coderking_coding_agent.context.compress import CompressionSummary, phase_a_compress
+from coderking_coding_agent.context.micro import micro_compact_tool_outputs
 from coderking_coding_agent.context.project_docs import (
     ProjectInstructions,
     ProjectInstructionsLoader,
@@ -26,5 +27,6 @@ __all__ = [
     "inject_named_skills",
     "inject_project_instructions",
     "make_transform_context",
+    "micro_compact_tool_outputs",
     "phase_a_compress",
 ]

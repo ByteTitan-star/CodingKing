@@ -9,7 +9,7 @@ import pytest
 
 from coderking.config import Settings
 from coderking.llm.provider import LLMResponse, ToolCall
-from coderking.registry import cancel_requested, request_cancel
+from coderking.registry import cancel_requested, load_task, request_cancel
 from coderking.runtime.loop import AgentRuntime
 from coderking.runtime.state import AgentState, TaskStatus
 from coderking_coding_agent.runtime.atomic_l1 import AtomicL1Runtime
@@ -88,6 +88,7 @@ async def test_atomic_l1_scripted_edit_loop(tmp_path: Path) -> None:
     assert any(r.name == "edit" and r.ok for r in state.tool_history)
     assert state.changed_files == ["calc.py"]
     assert state.iteration == 2
+    assert state.snapshot
     names = {
         (t.get("function") or {}).get("name") for t in (llm.last_tools or []) if isinstance(t, dict)
     }
@@ -210,6 +211,36 @@ async def test_atomic_l1_ask_auto_approve_allows(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_waiting_approval_status_is_persisted(tmp_path: Path) -> None:
+    llm = ScriptedLLM(
+        [
+            LLMResponse("", [_call("bash", command="git push origin main")]),
+            LLMResponse("done", []),
+        ]
+    )
+    observed: list[str] = []
+    state = AgentState(task="push", repository=str(tmp_path), task_id="approval-task")
+
+    async def approve(_name: str, _reason: str, _arguments: dict) -> bool:
+        record = load_task(tmp_path, state.task_id)
+        assert record is not None
+        observed.append(record.status)
+        return False
+
+    result = await AgentRuntime(_settings(tmp_path), llm).run(
+        "push",
+        tmp_path,
+        on_event=lambda _event: _async_none(),
+        auto_approve=False,
+        approve=approve,
+        state=state,
+    )
+
+    assert observed == ["waiting_approval"]
+    assert result.status == TaskStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
 async def test_resumed_state_is_sent_to_llm_before_new_prompt(tmp_path: Path) -> None:
     llm = ScriptedLLM([LLMResponse("continued", [])])
     previous = AgentState(task="first", repository=str(tmp_path))
@@ -276,6 +307,66 @@ async def test_runtime_activates_context_compression(tmp_path: Path) -> None:
     assert state.compression_count == 1
     assert any(event.type == "context_compressed" for event in events)
     assert any((item.get("meta") or {}).get("compression") for item in state.messages)
+
+
+@pytest.mark.asyncio
+async def test_runtime_micro_compacts_old_tool_results(tmp_path: Path) -> None:
+    llm = ScriptedLLM([LLMResponse("continued", [])])
+    previous = AgentState(task="long tools", repository=str(tmp_path))
+    previous.messages = [{"role": "system", "content": "core"}]
+    for index in range(8):
+        call_id = f"call-{index}"
+        previous.messages.extend(
+            [
+                {"role": "user", "content": f"request-{index}"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": "read", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": "large result " + ("x" * 3_000),
+                    "tool_call_id": call_id,
+                    "name": "read",
+                },
+            ]
+        )
+    events: list = []
+
+    async def on_event(event) -> None:  # noqa: ANN001
+        events.append(event)
+
+    state = await AgentRuntime(
+        _settings(
+            tmp_path,
+            context_window=30_000,
+            compression_reserve_tokens=1_000,
+            compression_threshold=0.9,
+            micro_compaction_threshold=0.1,
+            micro_compaction_keep_recent_tool_results=2,
+            micro_compaction_min_output_chars=1_000,
+        ),
+        llm,
+    ).run(
+        "continue",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+        state=previous,
+    )
+
+    assert state.micro_compaction_count == 1
+    assert state.compression_count == 0
+    assert any(event.type == "context_micro_compacted" for event in events)
+    tool_messages = [item for item in llm.last_messages if item["role"] == "tool"]
+    assert any("Earlier tool output compacted" in item["content"] for item in tool_messages)
 
 
 @pytest.mark.asyncio

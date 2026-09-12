@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from coderking_agent_core.types import AgentMessage
 from coderking_coding_agent.context.budget import TokenBudget, estimate_messages_tokens
 from coderking_coding_agent.context.compress import phase_a_compress
+from coderking_coding_agent.context.micro import micro_compact_tool_outputs
 from coderking_coding_agent.context.transform import ContextCompressor
 from coderking_coding_agent.session import SessionRepo
 
@@ -87,6 +89,58 @@ def test_phase_a_does_not_split_assistant_tool_group() -> None:
     first_tool = next(index for index, message in enumerate(retained) if message.role == "tool")
     assert retained[first_tool - 1].role == "assistant"
     assert retained[first_tool - 1].tool_calls
+
+
+def test_micro_compaction_keeps_tool_sequence_and_recent_results() -> None:
+    messages = _long_transcript(8, chars=50)
+    for message in messages:
+        if message.role == "tool":
+            message.content = "large output " + ("x" * 3_000)
+
+    compacted, count = micro_compact_tool_outputs(
+        messages,
+        keep_recent_tool_results=2,
+        min_output_chars=1_000,
+    )
+
+    assert count == 6
+    assert [message.role for message in compacted] == [message.role for message in messages]
+    tool_messages = [message for message in compacted if message.role == "tool"]
+    assert all(message.meta.get("micro_compaction") for message in tool_messages[:-2])
+    assert all(not message.meta.get("micro_compaction") for message in tool_messages[-2:])
+    assert tool_messages[-1].content == messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_micro_compaction_emits_event_and_persists_replacement(tmp_path: Path) -> None:
+    repo = SessionRepo(tmp_path, session_id="micro")
+    messages = _long_transcript(8, chars=50)
+    for message in messages:
+        if message.role == "tool":
+            message.content = "result " + ("y" * 3_000)
+    events: list[dict[str, Any]] = []
+
+    async def emit(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    compressor = ContextCompressor(
+        budget=TokenBudget(
+            context_window=30_000,
+            reserve_completion=1_000,
+            compress_threshold=0.9,
+        ),
+        session_repo=repo,
+        emit=emit,
+        micro_compaction_threshold=0.1,
+        micro_keep_recent_tool_results=2,
+        micro_min_output_chars=1_000,
+    )
+    result = await compressor.transform(messages)
+
+    assert any(event["type"] == "context_micro_compacted" for event in events)
+    assert not any(event["type"] == "context_compressed" for event in events)
+    assert len(repo.materialize_messages()) == len(result)
+    assert any(node.payload.get("strategy") == "micro" for node in repo.walk_to_head())
 
 
 @pytest.mark.asyncio

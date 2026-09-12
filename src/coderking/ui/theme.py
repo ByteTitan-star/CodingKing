@@ -51,6 +51,7 @@ _STATUS_STYLE = {
     TaskStatus.FAILED: ("失败", "ck.err"),
     TaskStatus.INTERRUPTED: ("已中断", "ck.warn"),
     TaskStatus.RUNNING: ("运行中", "ck.warn"),
+    TaskStatus.CANCELLING: ("取消中", "ck.warn"),
     TaskStatus.WAITING_APPROVAL: ("等待确认", "ck.warn"),
     TaskStatus.PENDING: ("待运行", "ck.dim"),
 }
@@ -135,6 +136,18 @@ def print_run_event(payload: dict) -> str:
     if etype == "approval_required":
         tool = escape(str(payload.get("tool") or "?"))
         return f"[ck.warn]⏸ 需要确认：{tool}[/ck.warn]"
+    if etype == "resource_diagnostic":
+        message = escape(str(payload.get("message") or "resource loading issue"))
+        return f"[ck.warn]⚠ {message}[/ck.warn]"
+    if etype == "context_micro_compacted":
+        before = int(payload.get("before_tokens") or 0)
+        after = int(payload.get("after_tokens") or 0)
+        count = int(payload.get("tool_results_compacted") or 0)
+        return f"[ck.dim]⏺ context micro {before} → {after} tokens ({count} tool results)[/ck.dim]"
+    if etype == "context_compressed":
+        before = int(payload.get("before_tokens") or 0)
+        after = int(payload.get("after_tokens") or 0)
+        return f"[ck.dim]⏺ context {before} → {after} tokens[/ck.dim]"
     return ""
 
 

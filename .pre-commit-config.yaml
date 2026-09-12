@@ -11,8 +11,35 @@ repos:
       - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.10
+    rev: v0.16.7
     hooks:
+      # On commit: lint + auto-fix and format the touched files.
       - id: ruff
         args: [--fix]
       - id: ruff-format
+      # On push: re-run the exact CI gate over the whole tree so nothing
+      # slips through with --no-verify or partially staged commits.
+      # (hook ids already carry their subcommand: entry is `ruff check` /
+      # `ruff format`, so args must NOT repeat it.)
+      - id: ruff
+        name: ruff check (CI gate)
+        stages: [pre-push]
+        pass_filenames: false
+        args: [src, tests, scripts, packages]
+      - id: ruff-format
+        name: ruff format --check (CI gate)
+        stages: [pre-push]
+        pass_filenames: false
+        args: [--check, src, tests, scripts, packages]
+
+  - repo: local
+    hooks:
+      - id: layer-deps
+        name: layer dependency check (CI gate)
+        # Repo requires Python 3.12; system python3 may be older and unable
+        # to parse the source (CI runs this on 3.12 as well).
+        entry: .venv/bin/python scripts/check_layer_deps.py
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

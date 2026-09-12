@@ -131,3 +131,15 @@ def test_session_id_cannot_escape_workspace(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="invalid session id"):
         SessionRepo(tmp_path, session_id="../../outside")
     assert not (tmp_path.parent / "outside.jsonl").exists()
+
+
+def test_materialize_historical_node_without_moving_head(tmp_path: Path) -> None:
+    repo = SessionRepo(tmp_path)
+    first = repo.append("message", {"message": {"role": "user", "content": "first"}})
+    repo.append("message", {"message": {"role": "assistant", "content": "second"}})
+    head = repo.head_id
+
+    historical = repo.materialize_messages(first.id)
+
+    assert historical == [{"role": "user", "content": "first"}]
+    assert repo.head_id == head

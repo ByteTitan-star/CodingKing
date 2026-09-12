@@ -8,6 +8,7 @@ from coderking_coding_agent.runtime.state import (
     Role,
     TaskStatus,
     ToolRecord,
+    new_run_state,
 )
 
-__all__ = ["AgentState", "PlanItem", "Role", "TaskStatus", "ToolRecord"]
+__all__ = ["AgentState", "PlanItem", "Role", "TaskStatus", "ToolRecord", "new_run_state"]

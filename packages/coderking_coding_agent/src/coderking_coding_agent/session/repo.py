@@ -74,10 +74,16 @@ class SessionRepo:
         self._save_head()
 
     def walk_to_head(self) -> list[SessionNode]:
-        if self._head_id is None:
+        return self.walk_to(self._head_id)
+
+    def walk_to(self, node_id: str | None) -> list[SessionNode]:
+        """Return the ancestry chain to any node without changing HEAD."""
+        if node_id is None:
             return []
+        if node_id not in self._nodes:
+            raise KeyError(f"unknown node_id: {node_id}")
         chain: list[SessionNode] = []
-        current: str | None = self._head_id
+        current: str | None = node_id
         seen: set[str] = set()
         while current is not None:
             if current in seen:
@@ -95,9 +101,10 @@ class SessionRepo:
         """Return every append-only node in file order, including inactive branches."""
         return list(self._nodes.values())
 
-    def materialize_messages(self) -> list[dict[str, Any]]:
+    def materialize_messages(self, node_id: str | None = None) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
-        for node in self.walk_to_head():
+        chain = self.walk_to_head() if node_id is None else self.walk_to(node_id)
+        for node in chain:
             if node.kind == "message":
                 msg = node.payload.get("message")
                 if isinstance(msg, dict):
@@ -112,9 +119,10 @@ class SessionRepo:
                     messages.append(summary)
         return messages
 
-    def materialize_session_state(self) -> dict[str, Any]:
+    def materialize_session_state(self, node_id: str | None = None) -> dict[str, Any]:
         """Return latest full session snapshot from the head chain."""
-        for node in reversed(self.walk_to_head()):
+        chain = self.walk_to_head() if node_id is None else self.walk_to(node_id)
+        for node in reversed(chain):
             snapshot = node.payload.get("session_snapshot")
             if isinstance(snapshot, dict):
                 return dict(snapshot)

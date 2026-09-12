@@ -45,7 +45,9 @@ class AgentState:
     task: str
     repository: str
     task_id: str = field(default_factory=lambda: uuid4().hex[:12])
+    parent_run_id: str | None = None
     session_id: str | None = None
+    turn_id: str | None = None
     role: Role = Role.PLANNER
     status: TaskStatus = TaskStatus.PENDING
     plan: list[PlanItem] = field(default_factory=list)
@@ -60,6 +62,9 @@ class AgentState:
     context_tokens_estimated: int = 0
     compression_count: int = 0
     micro_compaction_count: int = 0
+    checkpoint_count: int = 0
+    latest_checkpoint_id: str | None = None
+    event_cursor: int = 0
     sandbox_backend: str = "unknown"
     sandbox_status: str = "idle"
     last_test_ok: bool | None = None
@@ -84,3 +89,26 @@ class AgentState:
     def mark_plan_complete(self) -> None:
         for item in self.plan:
             item.done = True
+
+
+def new_run_state(
+    prompt: str,
+    repository: str,
+    *,
+    previous: AgentState | None = None,
+    session_id: str | None = None,
+) -> AgentState:
+    """Start a distinct run while carrying only session-scoped context."""
+    state = AgentState(
+        task=prompt,
+        repository=repository,
+        parent_run_id=previous.task_id if previous is not None else None,
+        session_id=session_id or (previous.session_id if previous is not None else None),
+    )
+    if previous is None:
+        return state
+    state.messages = [dict(message) for message in previous.messages]
+    state.context_tokens_estimated = previous.context_tokens_estimated
+    state.compression_count = previous.compression_count
+    state.micro_compaction_count = previous.micro_compaction_count
+    return state

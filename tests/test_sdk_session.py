@@ -16,8 +16,10 @@ class ScriptedLLM:
     def __init__(self, responses: list[LLMResponse]):
         self.responses = responses
         self.i = 0
+        self.message_batches: list[list[dict]] = []
 
     async def complete(self, messages, tools, cancel=None) -> LLMResponse:  # noqa: ANN001, ARG002
+        self.message_batches.append(list(messages))
         item = self.responses[min(self.i, len(self.responses) - 1)]
         self.i += 1
         return item
@@ -72,6 +74,31 @@ async def test_agent_session_run_yields_events(tmp_path: Path) -> None:
     assert session.task_id is not None
     assert session.status()["status"] == "succeeded"
     assert sdk_version.startswith("1.")
+
+
+@pytest.mark.asyncio
+async def test_agent_session_carries_history_into_distinct_runs(tmp_path: Path) -> None:
+    llm = ScriptedLLM([LLMResponse("first answer", []), LLMResponse("second answer", [])])
+    async with AgentSession(
+        workspace=tmp_path,
+        settings=_settings(tmp_path),
+        llm=llm,
+        auto_approve=True,
+    ) as session:
+        async for _event in session.run("first request"):
+            pass
+        first_run = session.run_id
+        async for _event in session.run("second request"):
+            pass
+        second_run = session.run_id
+
+    assert first_run and second_run and first_run != second_run
+    second_messages = llm.message_batches[-1]
+    assert [item.get("content") for item in second_messages if item["role"] == "user"] == [
+        "first request",
+        "second request",
+    ]
+    assert any(item.get("content") == "first answer" for item in second_messages)
 
 
 @pytest.mark.asyncio

@@ -101,7 +101,8 @@ async def run_agent_loop(
                 await emit({"type": "agent_end", "ok": False})
                 return ctx
             turns += 1
-            await emit({"type": "turn_start", "turn": turns})
+            turn_id = f"turn_{uuid4().hex[:12]}"
+            await emit({"type": "turn_start", "turn": turns, "turn_id": turn_id})
 
             if pending:
                 for msg in pending:
@@ -131,6 +132,7 @@ async def run_agent_loop(
             assistant = AgentMessage(
                 role="assistant",
                 content=turn.content or None,
+                meta={"turn_id": turn_id},
                 tool_calls=[
                     {
                         "id": c.id,
@@ -176,6 +178,7 @@ async def run_agent_loop(
                         content=result.output,
                         tool_call_id=result.tool_call_id,
                         name=result.name,
+                        meta={"turn_id": turn_id},
                     )
                     ctx.messages.append(tool_msg)
                     await _emit_message(emit, tool_msg)
@@ -183,7 +186,7 @@ async def run_agent_loop(
             else:
                 await fsm.advance(LoopEvent.ASSISTANT_NO_TOOLS, on_phase_change=emit_phase)
 
-            await emit({"type": "turn_end", "turn": turns})
+            await emit({"type": "turn_end", "turn": turns, "turn_id": turn_id})
 
             if config.should_stop_after_turn and await config.should_stop_after_turn(
                 ctx, turn, tool_results
@@ -227,13 +230,16 @@ async def _emit_message(
 
 
 def _msg_to_dict(msg: AgentMessage) -> dict[str, Any]:
-    return {
+    item = {
         "role": msg.role,
         "content": msg.content,
         "tool_calls": msg.tool_calls,
         "tool_call_id": msg.tool_call_id,
         "name": msg.name,
     }
+    if msg.meta:
+        item["meta"] = msg.meta
+    return item
 
 
 async def _fail_truncated_tools(
@@ -368,7 +374,10 @@ async def _execute_one_tool(
         ok = False
     else:
         try:
-            raw = await tool.execute(**call.arguments)
+            if tool.execute_call is not None:
+                raw = await tool.execute_call(call.id, call.arguments)
+            else:
+                raw = await tool.execute(**call.arguments)
             if isinstance(raw, tuple) and len(raw) == 2:
                 ok, output = bool(raw[0]), str(raw[1])
             else:

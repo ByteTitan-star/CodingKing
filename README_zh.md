@@ -1,7 +1,7 @@
 <h1 align="center">💻 CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.9"><img src="https://img.shields.io/badge/CoderKing-v1.0.9-2563eb" alt="CoderKing v1.0.9" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/CoderKing-v1.1.0-2563eb" alt="CoderKing v1.1.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
@@ -94,40 +94,46 @@ User → CLI / Web UI → FastAPI + WebSocket
 
 **环境要求：** Python 3.12+，Node 22+（仅 Web），Docker 可选。
 
+> 📖 新手上路？先看 **[CLI 使用指南](docs/cli/README.md)** —— 覆盖全部命令的完整教程（含示例与常见问题）。
+
+### 安装（三选一）
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-cp .env.example .env
+# 一行脚本，无需任何账号
+curl -fsSL https://raw.githubusercontent.com/ByteTitan-star/CodingKing/main/install.sh | sh
+
+# npm
+npm install -g codeking
+
+# 源码安装
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 ```
 
-编辑 `.env`：
+三种方式都会装出全局 `codeking` 命令。模型配置写在 `~/.coderking/.env`（全局）或 `<项目>/.env`（项目覆盖），任意 OpenAI 兼容接口均可：
 
 ```env
-CODERKING_OPENAI_BASE_URL=https://api.deepseek.com/v1
+CODERKING_OPENAI_BASE_URL=https://api.deepseek.com   # 或 open.bigmodel.cn/api/paas/v4 等
 CODERKING_OPENAI_API_KEY=sk-...
 CODERKING_MODEL=deepseek-chat
-CODERKING_DISABLE_THINKING=true
-CODERKING_SANDBOX_MODE=auto
 ```
 
 ### CLI
 
 ```bash
-coderking init
-coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
-coderking run "修复当前仓库里失败的单元测试" --workspace .
-coderking run "修复失败测试" --workspace . --test "python -m pytest -q"
-coderking chat --workspace .
-coderking skills list
-coderking run --skill code-review "审查当前改动"
-coderking tasks
-coderking status
-coderking stop <task_id>
-coderking eval --path eval/tasks --report-dir eval/reports
+codeking                    # 裸命令直接进交互会话（入场动画 + 流式回复）
+codeking new                # 开一条新会话（旧的保留）
+codeking -r                 # 交互式选择历史会话恢复（claude 同款）
+codeking sessions           # 会话列表：ID / 任务 / tokens / 消息数
+codeking run "修复失败的单元测试" -w .    # 一次性任务
+codeking status && codeking diff && codeking test
+codeking skills list
+codeking run --skill code-review "审查当前改动"
+codeking eval --path eval/tasks --report-dir eval/reports
 ```
 
-配置优先级：CLI 参数 > 环境变量 / `.env` > `.coderking/config.yaml` > 默认值。API Key 只走环境变量，勿写入 yaml 或提交 Git。
+会话内：`/new` 新会话 · `/trace` 展开折叠的工具轨迹 · `/exit` 退出；斜杠命令带描述自动补全；模型回复逐 token 流式输出并按 Markdown 渲染，工具过程折叠为一行摘要。
+
+配置优先级：shell 环境变量 > 项目 `.env` > `~/.coderking/.env` > `.coderking/config.yaml` > 默认值。API Key 只走环境变量，勿写入 yaml 或提交 Git。
 
 ### Web
 

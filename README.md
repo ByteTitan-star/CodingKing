@@ -1,7 +1,7 @@
 <h1 align="center">💻 CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.0.9"><img src="https://img.shields.io/badge/CoderKing-v1.0.9-2563eb" alt="CoderKing v1.0.9" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/CoderKing-v1.1.0-2563eb" alt="CoderKing v1.1.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
@@ -96,44 +96,48 @@ User → CLI / Web UI → FastAPI + WebSocket
 
 > 📖 New to CodeKing? Start with the **[CLI 使用指南](docs/cli/README.md)** — a complete beginner tutorial covering every command (`run`, `new`, `-r` session resume, and more) with examples.
 
+### Install (any of the three)
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
-cp .env.example .env
+# one-line script — no account needed
+curl -fsSL https://raw.githubusercontent.com/ByteTitan-star/CodingKing/main/install.sh | sh
+
+# npm
+npm install -g codeking
+
+# from source
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
 ```
 
-Edit `.env`:
+All three give you a global `codeking` command. Configure any OpenAI-compatible model once in `~/.coderking/.env` (global) or `<project>/.env` (per-project override):
 
 ```env
-CODERKING_OPENAI_BASE_URL=https://api.deepseek.com/v1
+CODERKING_OPENAI_BASE_URL=https://api.deepseek.com   # or open.bigmodel.cn/api/paas/v4, ...
 CODERKING_OPENAI_API_KEY=sk-...
 CODERKING_MODEL=deepseek-chat
-CODERKING_DISABLE_THINKING=true
-CODERKING_SANDBOX_MODE=auto
 ```
 
 ### CLI
 
 ```bash
-coderking init
-coderking config model --base-url https://api.deepseek.com/v1 --model deepseek-chat
-coderking run "Fix failing unit tests in this repo" --workspace .
-coderking run "Fix failing tests" --workspace . --test "python -m pytest -q"
-coderking chat --workspace .
-coderking status
-coderking stop <task_id>
-coderking eval --path eval/tasks --report-dir eval/reports
+codeking                          # bare command → interactive REPL (splash + streaming replies)
+codeking new                      # start a fresh session (old ones are kept)
+codeking -r                       # pick a past session to resume (claude-style)
+codeking sessions                 # list sessions: id / task / tokens / node count
+codeking run "Fix failing unit tests in this repo" -w .      # one-shot task
+codeking status && codeking diff && codeking test
 ```
 
-Configuration priority: CLI flags → environment / `.env` → `.coderking/config.yaml` → defaults. API keys are read from the environment only and must not be committed.
+In-chat: `/new` new session · `/trace` expand the collapsed tool trace · `/exit` quit. Slash commands autocomplete with descriptions. Replies stream token-by-token and render as Markdown; tool activity is collapsed to one summary line.
+
+Configuration priority: shell env → project `.env` → `~/.coderking/.env` → `.coderking/config.yaml` → defaults. API keys are read from the environment only and must not be committed.
 
 Use `--yes` to auto-approve dangerous operations. Use `--commit` to allow the agent to run `git commit`.
 
 ### Web
 
 ```bash
-coderking serve --port 8000
+codeking serve --port 8000
 ```
 
 In another terminal:
@@ -142,7 +146,7 @@ In another terminal:
 cd web && npm install && npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI serves `web/dist` when present.
+Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI serves `web/dist` when present. The Desktop shell (`cd desktop && npm start`) loads the same UI over stdio JSON-RPC — no server needed.
 
 ## Configuration
 
@@ -151,8 +155,9 @@ Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI se
 | `CODERKING_OPENAI_BASE_URL` | OpenAI-compatible API base URL |
 | `CODERKING_OPENAI_API_KEY` | API key (never commit to Git) |
 | `CODERKING_MODEL` | Model name |
-| `CODERKING_DISABLE_THINKING` | Disable reasoning-model `thinking` field (default `true`) |
-| `CODERKING_SANDBOX_MODE` | `auto`, `docker`, or `local` |
+| `CODERKING_DISABLE_THINKING` | Disable reasoning-model `thinking` field |
+| `CODERKING_SANDBOX_MODE` | `auto`, `docker`, `local`, or `microvm` |
+| `CODERKING_MAX_ITERATIONS` | Max agent-loop turns (default 24) |
 | `CODERKING_ALLOW_COMMIT` | Allow the `git_commit` tool |
 
 If the upstream API rejects the `thinking` field, the client strips it and retries once automatically.
@@ -160,16 +165,16 @@ If the upstream API rejects the `thinking` field, the client strips it and retri
 ## Development
 
 ```bash
-pre-commit install
-pre-commit run --all-files
-pytest -q -m "not docker"
-ruff check src tests
+pre-commit install                 # commit-time autofix + push-time CI-parity gates
+pytest -q -m "not docker and not live"
+ruff check src tests scripts packages && ruff format --check src tests scripts packages
+python scripts/check_layer_deps.py
 cd web && npm run lint && npm run build
 ```
 
 With Docker available: `pytest tests/test_docker.py`.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for scope and commit conventions. CI runs via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (unit tests skip Docker by default; a separate `docker-sandbox` job runs Docker integration tests).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for scope, commit conventions, and the exact pre-push checklist. CI runs via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (unit tests skip Docker by default; a separate `docker-sandbox` job runs Docker integration tests).
 
 ## Repository layout
 

@@ -67,6 +67,7 @@ class RpcService:
             auto_approve=auto_approve,
             test_command=str(test_command) if test_command else None,
             skill_names=skills_raw,
+            session_id=str(params.get("session_id") or "") or None,
         )
         task_id = task.state.task_id
         idle = asyncio.Event()

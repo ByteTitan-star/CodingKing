@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from coderking.config import Settings, load_settings
-from coderking.diffing import restore_snapshot, unified_diff
+from coderking.diffing import restore_snapshot, snapshot_workspace, unified_diff
 from coderking.llm.openai_compat import OpenAICompatProvider
 from coderking.memory.store import MemoryStore
 from coderking.registry import request_cancel
@@ -55,7 +55,12 @@ class TaskController:
 
     def _record_event(self, task: ManagedTask, event: AgentEvent) -> dict[str, Any]:
         task.event_seq += 1
-        record = {"id": f"{task.state.task_id}-{task.event_seq:06d}", **event.as_dict()}
+        record = {
+            "id": f"{task.state.task_id}-{task.event_seq:06d}",
+            "run_id": task.state.task_id,
+            "session_id": task.state.session_id,
+            **event.as_dict(),
+        }
         task.snapshot.append(record)
         return record
 
@@ -68,12 +73,15 @@ class TaskController:
         test_command: str | None = None,
         state: AgentState | None = None,
         skill_names: Sequence[str] = (),
+        session_id: str | None = None,
     ) -> ManagedTask:
         root = (workspace or self.settings.resolved_workspace()).resolve()
-        managed = ManagedTask(
-            state=state or AgentState(task=prompt, repository=str(root)),
-            workspace=root,
-        )
+        active_state = state or AgentState(task=prompt, repository=str(root))
+        if session_id is not None:
+            active_state.session_id = session_id
+        if not active_state.snapshot:
+            active_state.snapshot = snapshot_workspace(root)
+        managed = ManagedTask(state=active_state, workspace=root)
         async with self._lock:
             self.tasks[managed.state.task_id] = managed
 
@@ -118,9 +126,17 @@ class TaskController:
 
     def interrupt(self, task_id: str) -> None:
         task = self.get(task_id)
-        task.state.status = TaskStatus.INTERRUPTED
+        if task.state.status in {
+            TaskStatus.SUCCEEDED,
+            TaskStatus.FAILED,
+            TaskStatus.INTERRUPTED,
+        }:
+            return
+        task.state.status = TaskStatus.CANCELLING
         task.state.cancel_requested = True
         task.cancel.cancel()
+        if task.approval is not None and not task.approval.done():
+            task.approval.set_result(False)
         request_cancel(task.workspace, task_id)
 
     async def steer(self, task_id: str, content: str) -> None:
@@ -175,6 +191,8 @@ class TaskController:
         state = task.state
         return {
             "task_id": state.task_id,
+            "run_id": state.task_id,
+            "session_id": state.session_id,
             "prompt": state.task,
             "status": state.status.value,
             "role": state.role.value,
@@ -191,8 +209,14 @@ class TaskController:
             "context": {
                 "estimated_tokens": state.context_tokens_estimated,
                 "compression_count": state.compression_count,
+                "micro_compaction_count": state.micro_compaction_count,
             },
             "errors": state.errors,
+            "timing": {
+                "created_at": state.created_at,
+                "updated_at": state.updated_at,
+                "finished_at": state.finished_at,
+            },
             "events": task.snapshot[-200:],
         }
 

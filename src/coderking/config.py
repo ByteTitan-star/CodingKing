@@ -36,6 +36,10 @@ YAML_KEYS = (
     "compression_threshold",
     "compression_reserve_tokens",
     "compression_keep_recent_messages",
+    "micro_compaction_enabled",
+    "micro_compaction_threshold",
+    "micro_compaction_keep_recent_tool_results",
+    "micro_compaction_min_output_chars",
     "dynamic_tools_enabled",
     "mcp_enabled",
     "mcp_timeout_sec",
@@ -66,6 +70,12 @@ ENV_MAP = {
     "compression_threshold": "CODERKING_COMPRESSION_THRESHOLD",
     "compression_reserve_tokens": "CODERKING_COMPRESSION_RESERVE_TOKENS",
     "compression_keep_recent_messages": "CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES",
+    "micro_compaction_enabled": "CODERKING_MICRO_COMPACTION_ENABLED",
+    "micro_compaction_threshold": "CODERKING_MICRO_COMPACTION_THRESHOLD",
+    "micro_compaction_keep_recent_tool_results": (
+        "CODERKING_MICRO_COMPACTION_KEEP_RECENT_TOOL_RESULTS"
+    ),
+    "micro_compaction_min_output_chars": "CODERKING_MICRO_COMPACTION_MIN_OUTPUT_CHARS",
     "dynamic_tools_enabled": "CODERKING_DYNAMIC_TOOLS_ENABLED",
     "mcp_enabled": "CODERKING_MCP_ENABLED",
     "mcp_timeout_sec": "CODERKING_MCP_TIMEOUT_SEC",
@@ -112,6 +122,10 @@ class Settings(BaseSettings):
     compression_threshold: float = Field(default=0.75, gt=0, le=1)
     compression_reserve_tokens: int = Field(default=4096, ge=0)
     compression_keep_recent_messages: int = Field(default=20, ge=1)
+    micro_compaction_enabled: bool = True
+    micro_compaction_threshold: float = Field(default=0.5, gt=0, le=1)
+    micro_compaction_keep_recent_tool_results: int = Field(default=4, ge=0)
+    micro_compaction_min_output_chars: int = Field(default=2_000, ge=1)
     dynamic_tools_enabled: bool = False
     mcp_enabled: bool = False
     mcp_timeout_sec: float = Field(default=60.0, gt=0, le=300)

@@ -11,6 +11,7 @@ from coderking.registry import (
     ensure_session,
     list_sessions,
     load_session,
+    load_session_run,
     new_session_id,
     save_session,
     set_current_session_id,
@@ -117,6 +118,26 @@ def test_save_session_records_context_rewrite_as_compression(tmp_path: Path) -> 
         json.loads(line)["kind"] == "compression"
         for line in jsonl.read_text(encoding="utf-8").splitlines()
     )
+
+
+def test_load_session_run_materializes_exact_historical_run(tmp_path: Path) -> None:
+    first = _snap("first")
+    first["task_id"] = "run-first"
+    first["messages"] = [{"role": "user", "content": "first"}]
+    second = _snap("second")
+    second["task_id"] = "run-second"
+    second["messages"] = [
+        *first["messages"],
+        {"role": "assistant", "content": "done"},
+    ]
+    save_session(tmp_path, first, session_id="history")
+    save_session(tmp_path, second, session_id="history")
+
+    restored = load_session_run(tmp_path, "history", "run-first")
+
+    assert restored["task_id"] == "run-first"
+    assert restored["messages"] == first["messages"]
+    assert load_session(tmp_path, "history")["task_id"] == "run-second"
 
 
 def test_load_session_follows_current_pointer(tmp_path: Path) -> None:

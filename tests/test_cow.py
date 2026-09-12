@@ -165,3 +165,55 @@ async def test_runtime_cow_promotes_on_success(tmp_path: Path) -> None:
     assert state.status == TaskStatus.SUCCEEDED
     assert "a + b" in (tmp_path / "calc.py").read_text(encoding="utf-8")
     assert not (tmp_path / ".coderking" / "cow" / state.task_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_runtime_cow_marks_discarded_checkpoints_rolled_back(tmp_path: Path) -> None:
+    from coderking.llm.provider import LLMResponse, ToolCall
+    from coderking.runtime.checkpoints import CheckpointStore
+    from coderking.runtime.loop import AgentRuntime
+    from coderking.runtime.state import TaskStatus
+
+    target = tmp_path / "value.txt"
+    target.write_text("source", encoding="utf-8")
+
+    class FailingLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, messages, tools, cancel=None) -> LLMResponse:  # noqa: ANN001, ARG002
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(
+                    "",
+                    [
+                        ToolCall(
+                            id="write-1",
+                            name="write",
+                            arguments={"path": "value.txt", "content": "overlay"},
+                        )
+                    ],
+                )
+            raise RuntimeError("model failed")
+
+    settings = Settings(
+        openai_api_key="x",
+        sandbox_mode="local",
+        workspace=tmp_path,
+        sandbox_cow=True,
+    )
+
+    async def on_event(event) -> None:  # noqa: ANN001, ARG001
+        return None
+
+    state = await AgentRuntime(settings, FailingLLM()).run(
+        "change value",
+        tmp_path,
+        on_event=on_event,
+        auto_approve=True,
+    )
+
+    assert state.status == TaskStatus.FAILED
+    assert target.read_text(encoding="utf-8") == "source"
+    checkpoints = CheckpointStore(tmp_path, tmp_path, state.task_id).list()
+    assert [item["status"] for item in checkpoints] == ["rolled_back"]

@@ -30,6 +30,7 @@ class RpcService:
     def _handlers(self) -> dict[str, Any]:
         return {
             "agent.prompt": self._agent_prompt,
+            "agent.retry": self._agent_retry,
             "agent.steer": self._agent_steer,
             "agent.follow_up": self._agent_follow_up,
             "agent.abort": self._agent_abort,
@@ -42,6 +43,8 @@ class RpcService:
             "agent.reject": self._agent_reject,
             "agent.rollback": self._agent_rollback,
             "agent.accept": self._agent_accept,
+            "agent.checkpoints": self._agent_checkpoints,
+            "agent.rollback_checkpoint": self._agent_rollback_checkpoint,
             "session.load": self._session_load,
             "session.branch": self._session_branch,
         }
@@ -74,6 +77,30 @@ class RpcService:
         self._idle_events[task_id] = idle
         self._event_tasks[task_id] = asyncio.create_task(self._forward_events(task_id, idle))
         return {"task_id": task_id}
+
+    async def _agent_retry(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        if not task_id:
+            raise ValueError("params.task_id is required")
+        skills_raw = params.get("skills") or []
+        if not isinstance(skills_raw, list) or not all(
+            isinstance(item, str) for item in skills_raw
+        ):
+            raise ValueError("params.skills must be a list of skill names")
+        task = await self.controller.retry(
+            task_id,
+            prompt=str(params.get("text") or "") or None,
+            auto_approve=bool(params.get("auto_approve", False)),
+            test_command=str(params.get("test_command") or "") or None,
+            skill_names=skills_raw,
+        )
+        new_task_id = task.state.task_id
+        idle = asyncio.Event()
+        self._idle_events[new_task_id] = idle
+        self._event_tasks[new_task_id] = asyncio.create_task(
+            self._forward_events(new_task_id, idle)
+        )
+        return {"task_id": new_task_id, "parent_run_id": task_id}
 
     async def _forward_events(self, task_id: str, idle: asyncio.Event) -> None:
         try:
@@ -139,12 +166,32 @@ class RpcService:
 
     async def _agent_rollback(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "")
-        self.controller.rollback(task_id)
+        await asyncio.to_thread(self.controller.rollback, task_id)
         return {"ok": True}
 
     async def _agent_accept(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
-        _task_id = str(params.get("task_id") or "")
-        return {"ok": True}
+        task_id = str(params.get("task_id") or "")
+        accepted = await asyncio.to_thread(self.controller.accept, task_id)
+        return {"ok": True, "accepted_checkpoints": accepted}
+
+    async def _agent_checkpoints(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        checkpoints = await asyncio.to_thread(self.controller.checkpoints, task_id)
+        return {"checkpoints": checkpoints}
+
+    async def _agent_rollback_checkpoint(
+        self, _method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        checkpoint_id = str(params.get("checkpoint_id") or "")
+        if not checkpoint_id:
+            raise ValueError("params.checkpoint_id is required")
+        checkpoint = await asyncio.to_thread(
+            self.controller.rollback_checkpoint,
+            task_id,
+            checkpoint_id,
+        )
+        return {"ok": True, "checkpoint": checkpoint}
 
     async def _session_load(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
         session_id = str(params.get("session_id") or "default")

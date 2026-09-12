@@ -76,6 +76,11 @@ def format_agent_event(record: dict[str, Any]) -> tuple[PanelName, str] | None:
     if event_type == "resource_diagnostic":
         return "status", f"resource warning: {payload.get('message', '')}"
 
+    if event_type == "checkpoint":
+        status = payload.get("status", "?")
+        path = payload.get("path", "?")
+        return "status", f"checkpoint {status}: {path}"
+
     if event_type in {"context_compressed", "context_micro_compacted"}:
         before = payload.get("before_tokens", 0)
         after = payload.get("after_tokens", 0)

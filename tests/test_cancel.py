@@ -92,5 +92,56 @@ def test_cancel_request_does_not_mark_terminal_task(tmp_path: Path) -> None:
     assert not cancel_requested(tmp_path, state.task_id)
 
 
+@pytest.mark.asyncio
+async def test_controller_retry_creates_child_run_with_context(tmp_path: Path) -> None:
+    class CaptureLLM:
+        def __init__(self) -> None:
+            self.messages: list[dict] = []
+
+        async def complete(self, messages, tools, cancel=None) -> LLMResponse:  # noqa: ANN001, ARG002
+            self.messages = list(messages)
+            return LLMResponse("recovered", [])
+
+    llm = CaptureLLM()
+    controller = TaskController(
+        Settings(workspace=tmp_path, openai_api_key="x", sandbox_mode="local"),
+        llm=llm,
+    )
+    previous = AgentState(
+        task="repair",
+        repository=str(tmp_path),
+        task_id="failed-run",
+        session_id="session-a",
+        messages=[
+            {"role": "system", "content": "core"},
+            {"role": "user", "content": "repair"},
+            {"role": "assistant", "content": "failed attempt"},
+        ],
+    )
+    previous.status = TaskStatus.FAILED
+    controller.tasks[previous.task_id] = ManagedTask(state=previous, workspace=tmp_path)
+
+    retried = await controller.retry(previous.task_id)
+    async for _record in controller.subscribe_records(retried.state.task_id):
+        pass
+
+    assert retried.state.task_id != previous.task_id
+    assert retried.state.parent_run_id == previous.task_id
+    assert retried.state.session_id == previous.session_id
+    assert retried.state.status == TaskStatus.SUCCEEDED
+    assert any(item.get("content") == "failed attempt" for item in llm.messages)
+
+
+@pytest.mark.asyncio
+async def test_controller_retry_rejects_successful_task(tmp_path: Path) -> None:
+    controller = TaskController(Settings(workspace=tmp_path, openai_api_key="x"))
+    state = AgentState(task="done", repository=str(tmp_path), task_id="successful-run")
+    state.status = TaskStatus.SUCCEEDED
+    controller.tasks[state.task_id] = ManagedTask(state=state, workspace=tmp_path)
+
+    with pytest.raises(ValueError, match="only failed or interrupted"):
+        await controller.retry(state.task_id)
+
+
 async def _noop(event) -> None:  # noqa: ANN001, ARG001
     return None

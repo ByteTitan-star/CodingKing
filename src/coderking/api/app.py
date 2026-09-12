@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -89,6 +90,13 @@ class TaskCreate(BaseModel):
     session_id: str | None = None
 
 
+class TaskRetry(BaseModel):
+    prompt: str | None = None
+    auto_approve: bool = False
+    test_command: str | None = None
+    skills: list[str] = Field(default_factory=list)
+
+
 class SteerBody(BaseModel):
     content: str
 
@@ -150,6 +158,29 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(404, "task not found") from exc
 
+    @app.post("/api/tasks/{task_id}/retry")
+    async def retry_task(task_id: str, body: TaskRetry | None = None) -> dict:
+        request = body or TaskRetry()
+        auto_approve = bool(request.auto_approve) and http_auto_approve_allowed()
+        if request.auto_approve and not auto_approve:
+            raise HTTPException(
+                403,
+                "auto_approve over HTTP requires CODERKING_HTTP_AUTO_APPROVE=1",
+            )
+        try:
+            task = await ctrl.retry(
+                task_id,
+                prompt=request.prompt,
+                auto_approve=auto_approve,
+                test_command=request.test_command,
+                skill_names=request.skills,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return ctrl.public_task(task.state.task_id)
+
     @app.get("/api/tasks/{task_id}/tree")
     async def task_tree(task_id: str) -> dict:
         try:
@@ -174,8 +205,8 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
     @app.post("/api/tasks/{task_id}/rollback")
     async def rollback(task_id: str) -> dict:
         try:
-            ctrl.rollback(task_id)
-            return {"ok": True, "diff": ctrl.diff(task_id)}
+            await asyncio.to_thread(ctrl.rollback, task_id)
+            return {"ok": True, "diff": await asyncio.to_thread(ctrl.diff, task_id)}
         except KeyError as exc:
             raise HTTPException(404, "task not found") from exc
         except (OSError, ValueError) as exc:
@@ -184,9 +215,36 @@ def create_app(controller: TaskController | None = None) -> FastAPI:
     @app.post("/api/tasks/{task_id}/accept")
     async def accept_patch(task_id: str) -> dict:
         try:
-            return {"ok": True, "diff": ctrl.diff(task_id)}
+            accepted = await asyncio.to_thread(ctrl.accept, task_id)
+            diff = await asyncio.to_thread(ctrl.diff, task_id)
+            return {"ok": True, "accepted_checkpoints": accepted, "diff": diff}
         except KeyError as exc:
             raise HTTPException(404, "task not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/tasks/{task_id}/checkpoints")
+    async def checkpoints(task_id: str) -> dict:
+        try:
+            items = await asyncio.to_thread(ctrl.checkpoints, task_id)
+            return {"checkpoints": items}
+        except KeyError as exc:
+            raise HTTPException(404, "task not found") from exc
+
+    @app.post("/api/tasks/{task_id}/checkpoints/{checkpoint_id}/rollback")
+    async def rollback_checkpoint(task_id: str, checkpoint_id: str) -> dict:
+        try:
+            checkpoint = await asyncio.to_thread(
+                ctrl.rollback_checkpoint,
+                task_id,
+                checkpoint_id,
+            )
+            diff = await asyncio.to_thread(ctrl.diff, task_id)
+            return {"ok": True, "checkpoint": checkpoint, "diff": diff}
+        except KeyError as exc:
+            raise HTTPException(404, "task or checkpoint not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.get("/api/workspace/tree")
     async def workspace_tree(root: str | None = None) -> dict:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
@@ -9,6 +10,16 @@ from pathlib import Path
 from typing import Any
 
 from coderking.runtime.state import AgentState
+from coderking.task_index import TaskIndex
+
+_TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def validate_task_id(task_id: str) -> str:
+    value = task_id.strip()
+    if not _TASK_ID_RE.fullmatch(value):
+        raise ValueError("invalid task id; use letters, numbers, dot, dash, or underscore")
+    return value
 
 
 @dataclass
@@ -25,10 +36,15 @@ class TaskRecord:
     workspace: str
     last_test_ok: bool | None
     repair_count: int
+    parent_run_id: str | None = None
     context_tokens_estimated: int = 0
     compression_count: int = 0
     micro_compaction_count: int = 0
+    checkpoint_count: int = 0
+    latest_checkpoint_id: str | None = None
+    event_cursor: int = 0
     session_id: str | None = None
+    turn_id: str | None = None
     created_at: str = ""
     updated_at: str = ""
     finished_at: str | None = None
@@ -51,6 +67,7 @@ def record_from_state(state: AgentState, workspace: Path) -> TaskRecord:
         state.finished_at = state.finished_at or now
     return TaskRecord(
         task_id=state.task_id,
+        parent_run_id=state.parent_run_id,
         prompt=state.task,
         status=state.status.value,
         role=state.role.value,
@@ -65,7 +82,11 @@ def record_from_state(state: AgentState, workspace: Path) -> TaskRecord:
         context_tokens_estimated=state.context_tokens_estimated,
         compression_count=state.compression_count,
         micro_compaction_count=state.micro_compaction_count,
+        checkpoint_count=state.checkpoint_count,
+        latest_checkpoint_id=state.latest_checkpoint_id,
+        event_cursor=state.event_cursor,
         session_id=state.session_id,
+        turn_id=state.turn_id,
         created_at=state.created_at,
         updated_at=state.updated_at,
         finished_at=state.finished_at,
@@ -89,10 +110,16 @@ def _atomic_write_record(path: Path, record: TaskRecord) -> None:
 
 
 def save_record(workspace: Path, record: TaskRecord) -> None:
+    record.task_id = validate_task_id(record.task_id)
     path = _dir(workspace) / "current_task.json"
     task_path = _dir(workspace) / "tasks" / f"{record.task_id}.json"
     _atomic_write_record(task_path, record)
     _atomic_write_record(path, record)
+    _task_index(workspace).upsert(asdict(record))
+
+
+def _task_index(workspace: Path) -> TaskIndex:
+    return TaskIndex(_dir(workspace) / "state.db")
 
 
 def _record_from_data(data: dict[str, Any]) -> TaskRecord:
@@ -146,6 +173,7 @@ def recover_stale_tasks(workspace: Path) -> int:
         record.errors = [*(record.errors or []), "agent process exited before task completion"]
         recovered[record.task_id] = record
         _atomic_write_record(root / "tasks" / f"{record.task_id}.json", record)
+        _task_index(workspace).upsert(asdict(record))
     current = _read_record(current_path)
     if current is not None and current.task_id in recovered:
         _atomic_write_record(current_path, recovered[current.task_id])
@@ -159,6 +187,7 @@ def load_current(workspace: Path) -> TaskRecord | None:
 
 
 def load_task(workspace: Path, task_id: str) -> TaskRecord | None:
+    task_id = validate_task_id(task_id)
     recover_stale_tasks(workspace)
     path = _dir(workspace) / "tasks" / f"{task_id}.json"
     if not path.is_file():
@@ -187,7 +216,29 @@ def list_tasks(workspace: Path) -> list[TaskRecord]:
     return [record for _, record in records]
 
 
+def rebuild_task_index(workspace: Path) -> int:
+    """Rebuild the derived index from portable JSON task records."""
+    records = list_tasks(workspace)
+    _task_index(workspace).replace_all([asdict(record) for record in records])
+    return len(records)
+
+
+def query_task_index(
+    workspace: Path,
+    *,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Query the derived SQLite index without parsing every JSON record."""
+    index = _task_index(workspace)
+    task_dir = _dir(workspace) / "tasks"
+    if index.count() == 0 and task_dir.is_dir() and any(task_dir.glob("*.json")):
+        rebuild_task_index(workspace)
+    return index.list(status=status, limit=limit)
+
+
 def request_cancel(workspace: Path, task_id: str) -> None:
+    task_id = validate_task_id(task_id)
     root = _dir(workspace)
     task_path = root / "tasks" / f"{task_id}.json"
     record = _read_record(task_path)
@@ -199,6 +250,7 @@ def request_cancel(workspace: Path, task_id: str) -> None:
     record.status = "cancelling"
     record.updated_at = datetime.now(UTC).isoformat()
     _atomic_write_record(task_path, record)
+    _task_index(workspace).upsert(asdict(record))
     current_path = root / "current_task.json"
     current = _read_record(current_path)
     if current is not None and current.task_id == task_id:
@@ -206,10 +258,12 @@ def request_cancel(workspace: Path, task_id: str) -> None:
 
 
 def cancel_requested(workspace: Path, task_id: str) -> bool:
+    task_id = validate_task_id(task_id)
     return (_dir(workspace) / "cancels" / task_id).is_file()
 
 
 def clear_cancel(workspace: Path, task_id: str) -> None:
+    task_id = validate_task_id(task_id)
     path = _dir(workspace) / "cancels" / task_id
     if path.exists():
         path.unlink()
@@ -353,6 +407,26 @@ def load_session(workspace: Path, session_id: str | None = None) -> dict[str, An
     if repo is None:
         return {}
     return repo.materialize_session_state()
+
+
+def load_session_run(workspace: Path, session_id: str, run_id: str) -> dict[str, Any]:
+    """Materialize the exact session branch state captured for one run."""
+    run_id = validate_task_id(run_id)
+    jsonl = session_jsonl_path(workspace, session_id)
+    if not jsonl.is_file():
+        return {}
+    repo = _session_repo(workspace, session_id)
+    matches = [
+        node for node in repo.nodes() if node.kind == "run" and node.payload.get("run_id") == run_id
+    ]
+    if not matches:
+        return {}
+    node = matches[-1]
+    state = repo.materialize_session_state(node.id)
+    messages = repo.materialize_messages(node.id)
+    if messages:
+        state["messages"] = messages
+    return state
 
 
 def save_session(workspace: Path, payload: dict[str, Any], session_id: str | None = None) -> None:

@@ -12,10 +12,11 @@ from coderking.llm.openai_compat import OpenAICompatProvider
 from coderking.memory.store import MemoryStore
 from coderking.registry import request_cancel
 from coderking.runtime.cancel import CancellationToken
+from coderking.runtime.checkpoints import CheckpointStore
 from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
 from coderking.runtime.queues import RunMessageQueues
-from coderking.runtime.state import AgentState, TaskStatus
+from coderking.runtime.state import AgentState, TaskStatus, new_run_state
 from coderking.workspace import ensure_inside, iter_files
 
 
@@ -55,10 +56,14 @@ class TaskController:
 
     def _record_event(self, task: ManagedTask, event: AgentEvent) -> dict[str, Any]:
         task.event_seq += 1
+        task.state.event_cursor = max(task.state.event_cursor, task.event_seq)
         record = {
             "id": f"{task.state.task_id}-{task.event_seq:06d}",
             "run_id": task.state.task_id,
+            "parent_run_id": task.state.parent_run_id,
             "session_id": task.state.session_id,
+            "turn_id": task.state.turn_id,
+            "event_cursor": task.state.event_cursor,
             **event.as_dict(),
         }
         task.snapshot.append(record)
@@ -80,7 +85,7 @@ class TaskController:
         if session_id is not None:
             active_state.session_id = session_id
         if not active_state.snapshot:
-            active_state.snapshot = snapshot_workspace(root)
+            active_state.snapshot = await asyncio.to_thread(snapshot_workspace, root)
         managed = ManagedTask(state=active_state, workspace=root)
         async with self._lock:
             self.tasks[managed.state.task_id] = managed
@@ -113,11 +118,61 @@ class TaskController:
         asyncio.create_task(runner())
         return managed
 
+    async def retry(
+        self,
+        task_id: str,
+        *,
+        prompt: str | None = None,
+        auto_approve: bool = False,
+        test_command: str | None = None,
+        skill_names: Sequence[str] = (),
+    ) -> ManagedTask:
+        """Retry a terminal unsuccessful run with its exact in-memory context."""
+        previous = self.get(task_id)
+        if previous.state.status not in {TaskStatus.FAILED, TaskStatus.INTERRUPTED}:
+            raise ValueError(
+                f"task {task_id} is {previous.state.status.value}; "
+                "only failed or interrupted tasks "
+                "can be retried"
+            )
+        retry_prompt = prompt or previous.state.task
+        state = new_run_state(
+            retry_prompt,
+            str(previous.workspace),
+            previous=previous.state,
+            session_id=previous.state.session_id,
+        )
+        return await self.create_task(
+            retry_prompt,
+            previous.workspace,
+            auto_approve=auto_approve,
+            test_command=test_command,
+            state=state,
+            skill_names=skill_names,
+            session_id=previous.state.session_id,
+        )
+
     def get(self, task_id: str) -> ManagedTask:
         task = self.tasks.get(task_id)
         if task is None:
             raise KeyError(task_id)
         return task
+
+    @staticmethod
+    def _require_mutation_idle(task: ManagedTask, action: str) -> None:
+        if (
+            task.state.status
+            in {
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+                TaskStatus.CANCELLING,
+                TaskStatus.WAITING_APPROVAL,
+            }
+            or task.state.sandbox_status == "active"
+        ):
+            raise ValueError(
+                f"cannot {action} while task {task.state.task_id} is {task.state.status.value}"
+            )
 
     def resolve_approval(self, task_id: str, allowed: bool) -> None:
         task = self.get(task_id)
@@ -157,8 +212,24 @@ class TaskController:
 
     def rollback(self, task_id: str) -> None:
         task = self.get(task_id)
+        self._require_mutation_idle(task, "rollback")
         restore_snapshot(task.workspace, task.state.snapshot)
+        CheckpointStore(task.workspace, task.workspace, task_id).mark_all_rolled_back()
         task.state.changed_files = []
+
+    def accept(self, task_id: str) -> int:
+        task = self.get(task_id)
+        self._require_mutation_idle(task, "accept")
+        return CheckpointStore(task.workspace, task.workspace, task_id).accept_all()
+
+    def checkpoints(self, task_id: str) -> list[dict[str, Any]]:
+        task = self.get(task_id)
+        return CheckpointStore(task.workspace, task.workspace, task_id).list()
+
+    def rollback_checkpoint(self, task_id: str, checkpoint_id: str) -> dict[str, Any]:
+        task = self.get(task_id)
+        self._require_mutation_idle(task, "rollback checkpoint")
+        return CheckpointStore(task.workspace, task.workspace, task_id).restore(checkpoint_id)
 
     def diff(self, task_id: str) -> str:
         task = self.get(task_id)
@@ -192,11 +263,14 @@ class TaskController:
         return {
             "task_id": state.task_id,
             "run_id": state.task_id,
+            "parent_run_id": state.parent_run_id,
             "session_id": state.session_id,
+            "turn_id": state.turn_id,
             "prompt": state.task,
             "status": state.status.value,
             "role": state.role.value,
             "iteration": state.iteration,
+            "event_cursor": state.event_cursor,
             "plan": [asdict(item) for item in state.plan],
             "changed_files": state.changed_files,
             "test_results": state.test_results,
@@ -210,6 +284,10 @@ class TaskController:
                 "estimated_tokens": state.context_tokens_estimated,
                 "compression_count": state.compression_count,
                 "micro_compaction_count": state.micro_compaction_count,
+            },
+            "checkpoints": {
+                "count": state.checkpoint_count,
+                "latest_id": state.latest_checkpoint_id,
             },
             "errors": state.errors,
             "timing": {

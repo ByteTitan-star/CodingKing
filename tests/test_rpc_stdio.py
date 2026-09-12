@@ -143,3 +143,15 @@ async def test_rpc_service_task_query_and_control(tmp_path: Path) -> None:
     controller.resolve_approval.assert_called_once_with(state.task_id, True)
     await service._agent_rollback("agent.rollback", {"task_id": state.task_id})
     controller.rollback.assert_called_once_with(state.task_id)
+    controller.accept.return_value = 2
+    accepted = await service._agent_accept("agent.accept", {"task_id": state.task_id})
+    assert accepted["accepted_checkpoints"] == 2
+    controller.checkpoints.return_value = [{"checkpoint_id": "cp_a"}]
+    checkpoints = await service._agent_checkpoints("agent.checkpoints", {"task_id": state.task_id})
+    assert checkpoints["checkpoints"] == [{"checkpoint_id": "cp_a"}]
+    controller.rollback_checkpoint.return_value = {"checkpoint_id": "cp_a"}
+    rolled = await service._agent_rollback_checkpoint(
+        "agent.rollback_checkpoint",
+        {"task_id": state.task_id, "checkpoint_id": "cp_a"},
+    )
+    assert rolled["ok"] is True

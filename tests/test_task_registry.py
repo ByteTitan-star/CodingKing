@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from coderking.registry import list_tasks, load_current, persist_state
+import pytest
+
+from coderking.registry import list_tasks, load_current, load_task, persist_state, request_cancel
 from coderking.runtime.state import AgentState, TaskStatus
 
 
@@ -39,3 +41,22 @@ def test_task_record_reader_ignores_future_fields(tmp_path: Path) -> None:
     records = list_tasks(tmp_path)
 
     assert records[0].task_id == "future-task"
+
+
+def test_task_record_persists_latest_turn_id(tmp_path: Path) -> None:
+    state = AgentState(task="work", repository=str(tmp_path), task_id="turn-task")
+    state.turn_id = "turn_abc123"
+    persist_state(tmp_path, state)
+
+    record = load_current(tmp_path)
+
+    assert record is not None
+    assert record.turn_id == "turn_abc123"
+
+
+def test_task_id_cannot_escape_registry(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="invalid task id"):
+        load_task(tmp_path, "../../outside")
+    with pytest.raises(ValueError, match="invalid task id"):
+        request_cancel(tmp_path, "../outside")
+    assert not (tmp_path / "outside").exists()

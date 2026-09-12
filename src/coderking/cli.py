@@ -26,20 +26,30 @@ from coderking.registry import (
     current_session_id,
     ensure_session,
     list_sessions,
-    list_tasks,
     load_current,
     load_session,
+    load_session_run,
     load_task,
     new_session_id,
+    query_task_index,
+    rebuild_task_index,
     request_cancel,
     save_session,
     session_jsonl_path,
     set_current_session_id,
 )
 from coderking.runtime.cancel import CancellationToken
+from coderking.runtime.checkpoints import CheckpointStore
 from coderking.runtime.events import AgentEvent
 from coderking.runtime.loop import AgentRuntime
-from coderking.runtime.state import AgentState, PlanItem, Role, TaskStatus, ToolRecord
+from coderking.runtime.state import (
+    AgentState,
+    PlanItem,
+    Role,
+    TaskStatus,
+    ToolRecord,
+    new_run_state,
+)
 from coderking.sandbox.local import LocalProcessSandbox
 from coderking.tools.registry import ATOMIC_TOOL_NAMES
 from coderking.ui.splash import play_splash
@@ -69,11 +79,13 @@ skills_app = typer.Typer(no_args_is_help=False, help="Inspect and validate avail
 tools_app = typer.Typer(no_args_is_help=False, help="Inspect optional dynamic tools")
 mcp_app = typer.Typer(no_args_is_help=False, help="Inspect and validate MCP servers")
 session_app = typer.Typer(no_args_is_help=True, help="Inspect and branch session trees")
+checkpoint_app = typer.Typer(no_args_is_help=True, help="Inspect and restore tool checkpoints")
 app.add_typer(config_app, name="config")
 app.add_typer(skills_app, name="skills")
 app.add_typer(tools_app, name="tools")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(session_app, name="session")
+app.add_typer(checkpoint_app, name="checkpoint")
 
 
 def _workspace(path: Path | None) -> Path:
@@ -401,6 +413,76 @@ def run(
 
 
 @app.command()
+def retry(
+    task_id: str = typer.Argument(..., help="Failed or interrupted task id"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    prompt: str | None = typer.Option(None, "--prompt", help="Override the original prompt"),
+    yes: bool = typer.Option(False, "--yes", help="Auto-approve dangerous tools"),
+    commit: bool = typer.Option(False, "--commit", help="Allow git_commit"),
+    test: str | None = typer.Option(None, "--test", help="Preferred verification command"),
+    skill: list[str] = typer.Option([], "--skill", help="Explicit skill to load"),
+    dynamic_tools: bool = typer.Option(False, "--dynamic-tools"),
+    mcp: bool = typer.Option(False, "--mcp"),
+) -> None:
+    """Retry a failed/interrupted run as a new child run."""
+    root = _workspace(workspace)
+    try:
+        record = load_task(root, task_id)
+    except ValueError as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    if record is None:
+        console.print("[ck.err]task not found[/ck.err]")
+        raise typer.Exit(1)
+    if record.status not in {"failed", "interrupted"}:
+        console.print(
+            f"[ck.err]task {record.task_id} is {record.status}; "
+            "only failed or interrupted tasks can be retried[/ck.err]"
+        )
+        raise typer.Exit(1)
+
+    previous: AgentState | None = None
+    if record.session_id:
+        raw = load_session_run(root, record.session_id, record.task_id)
+        previous = _state_from_session_payload(root, raw, session_id=record.session_id)
+    if previous is None:
+        previous = AgentState(
+            task=record.prompt,
+            repository=str(root),
+            task_id=record.task_id,
+            session_id=record.session_id,
+            status=TaskStatus(record.status),
+        )
+
+    settings = load_settings(
+        workspace=root,
+        allow_commit=commit,
+        dynamic_tools_enabled=True if dynamic_tools else None,
+        mcp_enabled=True if mcp else None,
+    )
+    retry_prompt = prompt or record.prompt
+    print_banner(
+        workspace=root,
+        model=settings.model,
+        sandbox=settings.sandbox_mode,
+        interactive=False,
+    )
+    state = asyncio.run(
+        _run_task(
+            retry_prompt,
+            settings,
+            auto_approve=yes,
+            resume=previous,
+            test_command=test,
+            skill_names=skill,
+            session_id=record.session_id,
+        )
+    )
+    if record.session_id:
+        _save_chat_state(root, record.session_id, state)
+
+
+@app.command()
 def chat(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
     yes: bool = typer.Option(False, "--yes"),
@@ -541,6 +623,8 @@ def session_tree(
     root = _workspace(workspace)
     sid = session_id or current_session_id(root)
     try:
+        if not session_jsonl_path(root, sid).is_file():
+            raise ValueError(f"session {sid!r} does not exist")
         repo = SessionRepo(root, session_id=sid)
         active = {node.id for node in repo.walk_to_head()}
     except (OSError, ValueError) as exc:
@@ -574,6 +658,8 @@ def session_branch(
     root = _workspace(workspace)
     sid = session_id or current_session_id(root)
     try:
+        if not session_jsonl_path(root, sid).is_file():
+            raise ValueError(f"session {sid!r} does not exist")
         repo = SessionRepo(root, session_id=sid)
         repo.branch_to(node_id)
         set_current_session_id(root, sid)
@@ -607,6 +693,72 @@ def session_fork(
         console.print(f"[ck.err]{exc}[/ck.err]")
         raise typer.Exit(1) from exc
     console.print(f"[ck.ok]forked {source_id} → {target_id}[/ck.ok]")
+
+
+def _checkpoint_task(root: Path, task_id: str | None):
+    record = load_task(root, task_id) if task_id else load_current(root)
+    if record is None:
+        raise ValueError("task not found")
+    return record
+
+
+@checkpoint_app.command("list")
+def checkpoint_list(
+    task_id: str | None = typer.Argument(None, help="Task id; defaults to current"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+) -> None:
+    """List persisted file checkpoints for a task."""
+    root = _workspace(workspace)
+    try:
+        record = _checkpoint_task(root, task_id)
+        items = CheckpointStore(root, root, record.task_id).list()
+    except (OSError, ValueError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    if not items:
+        console.print("[ck.dim]no checkpoints[/ck.dim]")
+        return
+    table = Table(box=None, pad_edge=False, show_header=True)
+    table.add_column("checkpoint", style="ck.accent")
+    table.add_column("status")
+    table.add_column("turn", style="ck.dim")
+    table.add_column("tool")
+    table.add_column("path")
+    for item in items:
+        table.add_row(
+            str(item.get("checkpoint_id") or "?"),
+            str(item.get("status") or "?"),
+            str(item.get("turn_id") or "—"),
+            str(item.get("tool") or "?"),
+            str(item.get("path") or "?"),
+        )
+    console.print(table)
+
+
+@checkpoint_app.command("rollback")
+def checkpoint_rollback(
+    checkpoint_id: str = typer.Argument(..., help="Checkpoint id"),
+    task_id: str | None = typer.Option(None, "--task", help="Task id; defaults to current"),
+    workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation"),
+) -> None:
+    """Restore the file state captured before one mutating tool call."""
+    root = _workspace(workspace)
+    try:
+        record = _checkpoint_task(root, task_id)
+        if record.status in {"pending", "running", "cancelling", "waiting_approval"}:
+            raise ValueError(f"cannot rollback checkpoint while task is {record.status}")
+        store = CheckpointStore(root, root, record.task_id)
+        item = store.load(checkpoint_id)
+        path = str(item.get("path") or "?")
+        if not yes and not typer.confirm(f"Restore {path} from {checkpoint_id}?", default=False):
+            console.print("[ck.dim]cancelled[/ck.dim]")
+            return
+        restored = store.restore(checkpoint_id)
+    except (KeyError, OSError, ValueError) as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
+    console.print(f"[ck.ok]restored {restored.get('path')} from {checkpoint_id}[/ck.ok]")
 
 
 def _resolve_resume(root: Path, index: int | None) -> str | None:
@@ -759,7 +911,9 @@ def _save_chat_state(root: Path, session_id: str, state: AgentState) -> None:
         root,
         {
             "task_id": state.task_id,
+            "parent_run_id": state.parent_run_id,
             "session_id": state.session_id,
+            "turn_id": state.turn_id,
             "prompt": state.task,
             "status": state.status.value,
             "role": state.role.value,
@@ -775,6 +929,9 @@ def _save_chat_state(root: Path, session_id: str, state: AgentState) -> None:
             "context_tokens_estimated": state.context_tokens_estimated,
             "compression_count": state.compression_count,
             "micro_compaction_count": state.micro_compaction_count,
+            "checkpoint_count": state.checkpoint_count,
+            "latest_checkpoint_id": state.latest_checkpoint_id,
+            "event_cursor": state.event_cursor,
             "created_at": state.created_at,
             "updated_at": state.updated_at,
             "finished_at": state.finished_at,
@@ -846,6 +1003,15 @@ def _compact_state(state: AgentState, settings) -> None:
 
 def _state_from_session(workspace: Path, session_id: str | None = None) -> AgentState | None:
     raw = load_session(workspace, session_id)
+    return _state_from_session_payload(workspace, raw, session_id=session_id)
+
+
+def _state_from_session_payload(
+    workspace: Path,
+    raw: dict,
+    *,
+    session_id: str | None = None,
+) -> AgentState | None:
     if not raw:
         return None
     plan = [PlanItem(title=p["title"], done=p.get("done", False)) for p in raw.get("plan") or []]
@@ -865,9 +1031,11 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         task=str(raw.get("prompt") or ""),
         repository=str(workspace),
         task_id=str(raw.get("task_id") or ""),
+        parent_run_id=str(raw.get("parent_run_id") or "") or None,
         session_id=(
             str(raw.get("session_id") or "") or session_id or current_session_id(workspace)
         ),
+        turn_id=str(raw.get("turn_id") or "") or None,
         role=Role(raw.get("role") or "planner"),
         status=TaskStatus(raw.get("status") or "pending"),
         plan=plan,
@@ -881,6 +1049,9 @@ def _state_from_session(workspace: Path, session_id: str | None = None) -> Agent
         context_tokens_estimated=int(raw.get("context_tokens_estimated") or 0),
         compression_count=int(raw.get("compression_count") or 0),
         micro_compaction_count=int(raw.get("micro_compaction_count") or 0),
+        checkpoint_count=int(raw.get("checkpoint_count") or 0),
+        latest_checkpoint_id=str(raw.get("latest_checkpoint_id") or "") or None,
+        event_cursor=int(raw.get("event_cursor") or 0),
         last_test_ok=raw.get("last_test_ok"),
         snapshot=dict(raw.get("snapshot") or {}),
         tool_history=tool_history,
@@ -962,6 +1133,10 @@ async def _run_task(
         elif event.type == "resource_diagnostic":
             message = str(payload.get("message") or "resource loading issue")[:160]
             lines.append(Text.from_markup(f"[ck.warn]⚠ {message}[/ck.warn]"))
+        elif event.type == "checkpoint":
+            markup = print_run_event({"type": "checkpoint", **payload})
+            if markup:
+                lines.append(Text.from_markup(markup))
         elif event.type == "done":
             stream.clear()  # final reply is printed as Markdown below the Live
 
@@ -1015,14 +1190,12 @@ def _prepare_run_state(
     session_id: str | None,
 ) -> AgentState:
     """Create a distinct task/run while carrying only session-level context."""
-    state = AgentState(task=prompt, repository=str(workspace), session_id=session_id)
-    if previous is None:
-        return state
-    state.messages = [dict(message) for message in previous.messages]
-    state.context_tokens_estimated = previous.context_tokens_estimated
-    state.compression_count = previous.compression_count
-    state.micro_compaction_count = previous.micro_compaction_count
-    return state
+    return new_run_state(
+        prompt,
+        str(workspace),
+        previous=previous,
+        session_id=session_id,
+    )
 
 
 def _summarize_tools(tool_history: list) -> str:
@@ -1071,7 +1244,11 @@ def status(
 ) -> None:
     """Show the current task record or a persisted task by id."""
     root = _workspace(workspace)
-    record = load_task(root, task_id) if task_id else load_current(root)
+    try:
+        record = load_task(root, task_id) if task_id else load_current(root)
+    except ValueError as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
     if record is None:
         console.print("[ck.err]task not found[/ck.err]")
         raise typer.Exit(1 if task_id else 0)
@@ -1087,14 +1264,30 @@ def status(
         f"  [ck.dim]上下文[/ck.dim]  {record.context_tokens_estimated} tokens · "
         f"压缩 {record.compression_count} 次 · 微压缩 {record.micro_compaction_count} 次"
     )
+    if record.checkpoint_count:
+        console.print(
+            f"  [ck.dim]检查点[/ck.dim]  {record.checkpoint_count} 个 · "
+            f"最新 {record.latest_checkpoint_id or '—'}"
+        )
 
 
 @app.command()
 def tasks(
     workspace: Path | None = typer.Option(None, "--workspace", "-w"),
+    status: str | None = typer.Option(None, "--status", help="Filter by exact task status"),
+    limit: int = typer.Option(100, "--limit", min=1, max=10_000),
+    rebuild_index: bool = typer.Option(
+        False,
+        "--rebuild-index",
+        help="Rebuild state.db from portable JSON records before listing",
+    ),
 ) -> None:
-    """List persisted task records for the workspace."""
-    records = list_tasks(_workspace(workspace))
+    """List persisted tasks through the derived SQLite index."""
+    root = _workspace(workspace)
+    if rebuild_index:
+        rebuilt = rebuild_task_index(root)
+        console.print(f"[ck.dim]rebuilt task index from {rebuilt} record(s)[/ck.dim]")
+    records = query_task_index(root, status=status, limit=limit)
     if not records:
         console.print("[ck.dim]no task records[/ck.dim]")
         return
@@ -1104,7 +1297,12 @@ def tasks(
     table.add_column("turns", justify="right", style="ck.dim")
     table.add_column("prompt", overflow="ellipsis", max_width=60)
     for record in records:
-        table.add_row(record.task_id, record.status, str(record.iteration), record.prompt[:60])
+        table.add_row(
+            str(record["task_id"]),
+            str(record["status"]),
+            str(record["iteration"]),
+            str(record["prompt"])[:60],
+        )
     console.print(table)
 
 
@@ -1115,7 +1313,11 @@ def stop(
 ) -> None:
     """Request cancellation for a running task."""
     root = _workspace(workspace)
-    record = load_task(root, task_id) if task_id else load_current(root)
+    try:
+        record = load_task(root, task_id) if task_id else load_current(root)
+    except ValueError as exc:
+        console.print(f"[ck.err]{exc}[/ck.err]")
+        raise typer.Exit(1) from exc
     if record is None:
         console.print("[ck.err]task not found[/ck.err]")
         raise typer.Exit(1)

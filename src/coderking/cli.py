@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import typer
@@ -287,12 +288,24 @@ def _resolve_resume(root: Path, index: int | None) -> str | None:
     return items[int(choice) - 1].session_id
 
 
+def _read_input() -> str:
+    """One prompt line: slash-completion REPL on a TTY, plain input otherwise."""
+    if sys.stdin.isatty():
+        try:
+            from coderking.ui.repl_input import prompt as repl_prompt
+
+            return repl_prompt()
+        except Exception:
+            pass  # prompt_toolkit unavailable or terminal unsupported
+    return console.input("[ck.accent]❯ [/]").strip()
+
+
 def _chat_loop(root: Path, settings, yes: bool, test: str | None, session_id: str) -> None:
     session_id = ensure_session(root, session_id)
     state = _state_from_session(root, session_id)
     while True:
         try:
-            prompt = console.input("[ck.accent]❯ [/]").strip()
+            prompt = _read_input()
         except (EOFError, KeyboardInterrupt):
             console.print()
             break
@@ -389,6 +402,7 @@ async def _run_task(
     cancel = CancellationToken()
     runtime = AgentRuntime(settings, OpenAICompatProvider(settings), cancel=cancel)
     lines: list[Text] = []
+    stream: list[str] = []  # content deltas of the current assistant turn
     tick = [0]
 
     def render() -> Text:
@@ -401,11 +415,19 @@ async def _run_task(
         if lines:
             head.append(Text("\n"))
             head.append(lines[-1])
+        if stream:
+            tail = "\n".join("".join(stream).splitlines()[-8:])
+            head.append(Text("\n"))
+            head.append(Text(tail, style="ck.dim"))
         return head
 
     async def on_event(event: AgentEvent) -> None:
         payload = event.payload
+        if event.type == "content_delta":
+            stream.append(str(payload.get("text") or ""))
+            return
         if event.type == "tool_call":
+            stream.clear()  # the model switched from writing to acting
             markup = print_run_event({"type": "tool_call", **payload})
             if markup:
                 lines.append(Text.from_markup(markup))
@@ -419,11 +441,13 @@ async def _run_task(
         elif event.type == "error":
             msg = str(payload.get("message", ""))[:100]
             lines.append(Text.from_markup(f"[ck.err]⏺ 错误[/ck.err] [ck.faint]{msg}[/ck.faint]"))
+        elif event.type == "done":
+            stream.clear()  # final reply is printed as Markdown below the Live
 
     async def approve(tool: str, reason: str, arguments: dict) -> bool:
         return typer.confirm(f"Approve {tool} ({reason})? {arguments}", default=False)
 
-    with Live(console=console, refresh_per_second=8) as live:
+    with Live(console=console, refresh_per_second=20) as live:
 
         async def wrapped(event: AgentEvent) -> None:
             await on_event(event)

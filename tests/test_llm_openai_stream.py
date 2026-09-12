@@ -65,3 +65,63 @@ async def test_complete_chat_streaming_retries_503() -> None:
         )
     assert result.content == "ok"
     assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_on_delta_receives_content_deltas_in_order() -> None:
+    body = (
+        'data: {"choices":[{"delta":{"content":"你"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"好"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"！"},'
+        '"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":1,"completion_tokens":3}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    got: list[str] = []
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.example"
+    ) as client:
+        result = await complete_chat_streaming(
+            client=client,
+            url="https://api.example/v1/chat/completions",
+            headers={},
+            payload={"model": "m", "messages": []},
+            policy=RetryPolicy(max_attempts=1),
+            on_delta=got.append,
+        )
+    assert got == ["你", "好", "！"]
+    assert result.content == "你好！"
+
+
+@pytest.mark.asyncio
+async def test_on_delta_supports_async_callbacks() -> None:
+    body = (
+        'data: {"choices":[{"delta":{"content":"A"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"B"},"finish_reason":"stop"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    got: list[str] = []
+
+    async def async_on_delta(text: str) -> None:
+        got.append(text)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.example"
+    ) as client:
+        await complete_chat_streaming(
+            client=client,
+            url="https://api.example/v1/chat/completions",
+            headers={},
+            payload={"model": "m", "messages": []},
+            policy=RetryPolicy(max_attempts=1),
+            on_delta=async_on_delta,
+        )
+    assert got == ["A", "B"]

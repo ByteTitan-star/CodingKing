@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -52,8 +53,11 @@ class OpenAICompatProvider:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         cancel: CancellationToken | None = None,
+        on_delta: Callable[[str], None] | Awaitable = None,
     ) -> LLMResponse:
         if not self.settings.openai_api_key:
             raise RuntimeError("CODERKING_OPENAI_API_KEY is missing")
         should_abort = (lambda: cancel.cancelled) if cancel else None
-        return await self._inner.complete(messages, tools, should_abort=should_abort)
+        return await self._inner.complete(
+            messages, tools, should_abort=should_abort, on_delta=on_delta
+        )

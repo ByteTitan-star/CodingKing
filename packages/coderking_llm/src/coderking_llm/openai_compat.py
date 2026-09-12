@@ -47,6 +47,7 @@ class OpenAICompatProvider:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         should_abort: Callable[[], bool] | None = None,
+        on_delta: Callable[[str], None] | None = None,
     ) -> LLMResponse:
         if not self.config.api_key:
             raise RuntimeError("OpenAI-compatible API key is missing")
@@ -68,6 +69,7 @@ class OpenAICompatProvider:
                         payload=payload,
                         policy=self.retry_policy,
                         should_abort=should_abort,
+                        on_delta=on_delta,
                     )
                     return LLMResponse(
                         content=assembled.content,

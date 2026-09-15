@@ -1,7 +1,7 @@
 <h1 align="center">💻 CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/CoderKing-v1.1.0-2563eb" alt="CoderKing v1.1.0" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.2.0"><img src="https://img.shields.io/badge/CoderKing-v1.2.0-2563eb" alt="CoderKing v1.2.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
@@ -35,7 +35,7 @@ Phase 1 is a runnable MVP (Python runtime + React workspace in one repo), not a 
 
 ## Product showcase
 
-All screenshots below are **live captures of v1.1.0** — a real agent run fixing a real failing test (`a - b` → `a + b`).
+Screenshots below capture the **v1.2.0 surfaces**. CLI and Web/Desktop run the same agent loop on a failing-test repair task (`a - b` → `a + b`).
 
 ### CLI (the primary surface)
 
@@ -43,26 +43,26 @@ All screenshots below are **live captures of v1.1.0** — a real agent run fixin
 
 Bare `codeking` drops into the REPL: banner → describe a task → the agent explores, edits, and verifies (`⏺ 工具 ×5` collapsed summary, `/trace` to expand) → reply rendered as Markdown → result summary.
 
-### Web workspace
+### Desktop / Web workspace
 
-![CoderKing light workspace during a bug-fix repair loop](docs/showcase/assets/product-workspace.png)
+![CoderKing desktop workspace: session sidebar, streamed Markdown reply, plan card, subagent trace](docs/showcase/assets/product-workspace.png)
 
-A failing unit test triggers the pure agent loop (edit → bash/tests → iterate). The workspace shows the tool timeline, patched files, and test output in one light, chat-centric view.
+The redesigned conversation-first workspace: session sidebar with resume, streaming Markdown replies, working plan, collapsible tool and subagent traces, inline diff summary, and a composer with permission / model / reasoning-effort selectors — while the right panel tracks files, diffs, checkpoints and test output.
 
 ### Unified diff
 
-![CoderKing diff viewer after repair](docs/showcase/assets/product-diff.png)
+![CoderKing diff viewer with add/delete highlighting and file stats](docs/showcase/assets/product-diff.png)
 
-Review exactly what changed — per-line diff with add/delete highlighting — before accepting or rolling back.
+Review exactly what changed — per-line diff with add/delete highlighting and +/- stats — before accepting or rolling back, or undo directly from the inline summary in the conversation.
 
 ## Product interface
 
-| CLI | Web workspace | Diff & runtime |
+| CLI | Desktop / Web workspace | Diff & runtime |
 | --- | --- | --- |
 | ![CodeKing CLI REPL](docs/showcase/assets/product-cli.png) | ![CoderKing engineering workspace](docs/showcase/assets/product-workspace.png) | ![CoderKing diff and runtime panel](docs/showcase/assets/product-diff.png) |
-| Streaming REPL with session management and slash autocomplete. | Describe a task, watch agent activity, and inspect changed files. | Inspect unified diffs, terminal output, and test results side by side. |
+| Streaming REPL with session management and slash autocomplete. | Describe a task, watch the orchestrated agent work, and inspect changed files. | Inspect unified diffs, checkpoints, and test results side by side. |
 
-Screenshots live under [`docs/showcase/`](docs/showcase/); they are captured from real runs against the redesigned v1.1.0 UI.
+Screenshots live under [`docs/showcase/`](docs/showcase/); the desktop captures are rendered from the v1.2.0 UI.
 
 ## Core features
 
@@ -71,6 +71,9 @@ Screenshots live under [`docs/showcase/`](docs/showcase/); they are captured fro
 | Unified runtime | CLI and Web call the same Agent Runtime — no duplicate orchestration logic. |
 | Pure agent loop | Pi-aligned ReAct-style loop without LangChain / LangGraph and without fixed role stages. |
 | Four atomic tools | `read` / `write` / `edit` / `bash` only — the model decides the order. |
+| Subagents & dynamic workflow | Opt-in `agent` + `plan` tools: delegate to read-only `explore` or `general-purpose` subagents, run same-turn delegations in parallel (fail-closed behind `dynamic_workflow`). |
+| Reasoning effort | `off` / `low` / `medium` / `high` / `ultra` selectable at runtime with graceful backend fallback. |
+| Durable tasks | Session tree with branch/resume, retry indexing, file checkpoints with per-checkpoint rollback. |
 | Prompt verification | After edits, run checks with bash; optional `--test` soft hint (not a hard gate). |
 | Sandbox execution | Docker-first isolation; local process fallback for development only. |
 | Model-agnostic | OpenAI-compatible APIs — DeepSeek, GLM, Qwen, Ollama, and similar gateways. |

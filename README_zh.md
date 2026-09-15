@@ -1,7 +1,7 @@
 <h1 align="center">💻 CoderKing</h1>
 
 <p align="center">
-  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.1.0"><img src="https://img.shields.io/badge/CoderKing-v1.1.0-2563eb" alt="CoderKing v1.1.0" /></a>
+  <a href="https://github.com/ByteTitan-star/CodingKing/releases/tag/v1.2.0"><img src="https://img.shields.io/badge/CoderKing-v1.2.0-2563eb" alt="CoderKing v1.2.0" /></a>
   <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/ByteTitan-star/CodingKing/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
@@ -35,7 +35,7 @@ CoderKing 是面向软件工程的自主 **Coding Agent** 运行时（对齐 Pi�
 
 ## 产品展示
 
-以下截图全部来自 **v1.1.0 真实运行**——一次修复真实失败测试（`a - b` → `a + b`）的完整代理任务。
+以下截图来自 **v1.2.0 产品形态**——CLI 与 Web/Desktop 共用同一代理循环，任务为修复失败测试（`a - b` → `a + b`）。
 
 ### CLI（主形态）
 
@@ -43,26 +43,26 @@ CoderKing 是面向软件工程的自主 **Coding Agent** 运行时（对齐 Pi�
 
 裸命令 `codeking` 直接进入 REPL：横幅 → 描述任务 → 代理自主探索、修改、验证（`⏺ 工具 ×5` 折叠摘要，`/trace` 展开）→ 回复按 Markdown 渲染 → 结果摘要。
 
-### Web 工作台
+### 桌面 / Web 工作台
 
-![CoderKing 淡色工作台 — bug 修复与 Repair 循环](docs/showcase/assets/product-workspace.png)
+![CoderKing 桌面工作台：会话侧栏、流式 Markdown 回复、计划卡片、子代理轨迹](docs/showcase/assets/product-workspace.png)
 
-单测失败后，Agent 走纯循环（改文件 → 跑测试 → 再修）。工作台以对话为中心，同一视图展示工具时间线、改动文件与测试输出。
+重设计后的对话优先工作台：可恢复的会话侧栏、流式 Markdown 回复、工作计划、可折叠的工具与子代理轨迹、内联 Diff 摘要，输入区带审批模式 / 模型 / 推理等级选择器；右侧面板跟踪文件、Diff、检查点与测试输出。
 
 ### 统一 Diff
 
-![CoderKing Diff 视图 — 修复后对比](docs/showcase/assets/product-diff.png)
+![CoderKing Diff 视图 — 增删高亮与文件统计](docs/showcase/assets/product-diff.png)
 
-在接受或回滚前，逐行查看带增删高亮的改动内容。
+逐行查看带增删高亮与 +/- 统计的改动；也可直接使用对话内的内联摘要一键撤销，再决定采纳或回滚。
 
 ## 产品界面
 
-| CLI | Web 工作台 | Diff 与运行时 |
+| CLI | 桌面 / Web 工作台 | Diff 与运行时 |
 | --- | --- | --- |
 | ![CodeKing CLI REPL](docs/showcase/assets/product-cli.png) | ![CoderKing 工程工作台](docs/showcase/assets/product-workspace.png) | ![CoderKing Diff 与运行时面板](docs/showcase/assets/product-diff.png) |
-| 流式 REPL + 会话管理 + 斜杠命令补全。 | 描述任务、查看 Agent 活动、浏览改动文件。 | 并排查看统一 diff、终端输出与测试结果。 |
+| 流式 REPL + 会话管理 + 斜杠命令补全。 | 描述任务、查看编排式代理工作、浏览改动文件。 | 并排查看统一 diff、检查点与测试结果。 |
 
-截图资源位于 [`docs/showcase/`](docs/showcase/)，均为 v1.1.0 改版后真实任务运行的实拍。
+截图资源位于 [`docs/showcase/`](docs/showcase/)；桌面截图渲染自 v1.2.0 UI。
 
 ## 核心能力
 
@@ -71,6 +71,9 @@ CoderKing 是面向软件工程的自主 **Coding Agent** 运行时（对齐 Pi�
 | 统一 Runtime | CLI 与 Web 共用 Agent Runtime，避免重复编排。 |
 | 纯 Agent 循环 | 对齐 Pi 的 ReAct 式循环；无 LangChain / LangGraph，无固定角色阶段。 |
 | 四原子工具 | 仅 `read` / `write` / `edit` / `bash`，步骤顺序由模型决定。 |
+| 子代理与动态工作流 | 可选 `agent` + `plan` 工具：委派只读 `explore` 或 `general-purpose` 子代理，同轮委派并行执行（`dynamic_workflow` 门控，默认关闭）。 |
+| 推理等级 | `off` / `low` / `medium` / `high` / `ultra` 运行时可切，后端不支持时自动降级。 |
+| 持久化任务 | 会话树支持分支/恢复、重试索引、文件检查点可逐点回滚。 |
 | 提示词验收 | 改完用 bash 跑检查；可选 `--test` 软提示（非硬门禁）。 |
 | 沙箱执行 | Docker 为主；无 Docker 时 local 进程仅作开发 fallback，事件流会标明。 |
 | 多模型兼容 | OpenAI Compatible 网关 —— DeepSeek、GLM、Qwen、Ollama 等换 `base_url` 即可。 |

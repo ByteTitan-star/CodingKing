@@ -111,6 +111,8 @@ _TOOL_MARK = {
     "write": "写",
     "edit": "改",
     "bash": "跑",
+    "agent": "派",
+    "plan": "划",
 }
 
 
@@ -128,7 +130,11 @@ def print_run_event(payload: dict) -> str:
             suffix = " [ck.ok]✓[/ck.ok]"
         elif status == "error":
             suffix = " [ck.err]✗[/ck.err]"
-        head = f"[ck.faint]⏺ {mark}[/ck.faint] {escape(tool)} [ck.faint]{escape(arg)}[/ck.faint]"
+        prefix = "└ " if payload.get("subagent") else ""
+        head = (
+            f"[ck.faint]⏺ {mark}[/ck.faint] {prefix}{escape(tool)} "
+            f"[ck.faint]{escape(arg)}[/ck.faint]"
+        )
         return head + suffix
     if etype == "terminal":
         text = escape(str(payload.get("text", ""))[:120].strip())
@@ -152,6 +158,29 @@ def print_run_event(payload: dict) -> str:
         before = int(payload.get("before_tokens") or 0)
         after = int(payload.get("after_tokens") or 0)
         return f"[ck.dim]⏺ context {before} → {after} tokens[/ck.dim]"
+    if etype == "plan_update":
+        items = payload.get("plan") if isinstance(payload.get("plan"), list) else []
+        done = sum(1 for item in items if isinstance(item, dict) and item.get("done"))
+        titles = " / ".join(
+            escape(str(item.get("title") or ""))[:24]
+            for item in items[:5]
+            if isinstance(item, dict)
+        )
+        return f"[ck.dim]⏺ 计划 {done}/{len(items)}: {titles}[/ck.dim]"
+    if etype == "subagent_start":
+        desc = escape(str(payload.get("description") or "?"))
+        atype = escape(str(payload.get("agent_type") or "?"))
+        return f"[ck.brand]⏺ 派发子代理[/ck.brand] [ck.dim]{desc}（{atype}）[/ck.dim]"
+    if etype == "subagent_end":
+        desc = escape(str(payload.get("description") or "?"))
+        calls = int(payload.get("tool_calls") or 0)
+        summary = escape(str(payload.get("summary") or "")[:100])
+        mark = "✓" if payload.get("ok") else "✗"
+        style = "ck.ok" if payload.get("ok") else "ck.err"
+        return (
+            f"[ck.dim]⏺ 子代理完成[{mark}] {desc} · {calls} 次工具调用[/ck.dim] "
+            f"[{style}]{summary}[/{style}]"
+        )
     return ""
 
 

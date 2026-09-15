@@ -42,6 +42,8 @@ YAML_KEYS = (
     "micro_compaction_keep_recent_tool_results",
     "micro_compaction_min_output_chars",
     "dynamic_tools_enabled",
+    "dynamic_workflow",
+    "subagent_max_turns",
     "mcp_enabled",
     "mcp_timeout_sec",
     "allow_commit",
@@ -79,6 +81,8 @@ ENV_MAP = {
     ),
     "micro_compaction_min_output_chars": "CODERKING_MICRO_COMPACTION_MIN_OUTPUT_CHARS",
     "dynamic_tools_enabled": "CODERKING_DYNAMIC_TOOLS_ENABLED",
+    "dynamic_workflow": "CODERKING_DYNAMIC_WORKFLOW",
+    "subagent_max_turns": "CODERKING_SUBAGENT_MAX_TURNS",
     "mcp_enabled": "CODERKING_MCP_ENABLED",
     "mcp_timeout_sec": "CODERKING_MCP_TIMEOUT_SEC",
     "allow_commit": "CODERKING_ALLOW_COMMIT",
@@ -131,6 +135,8 @@ class Settings(BaseSettings):
     micro_compaction_keep_recent_tool_results: int = Field(default=4, ge=0)
     micro_compaction_min_output_chars: int = Field(default=2_000, ge=1)
     dynamic_tools_enabled: bool = False
+    dynamic_workflow: bool = False
+    subagent_max_turns: int = Field(default=16, ge=1, le=100)
     mcp_enabled: bool = False
     mcp_timeout_sec: float = Field(default=60.0, gt=0, le=300)
     allow_commit: bool = False

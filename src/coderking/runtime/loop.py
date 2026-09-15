@@ -71,6 +71,8 @@ def _config_for(settings: Settings) -> RuntimeConfig:
             settings.micro_compaction_keep_recent_tool_results
         ),
         micro_compaction_min_output_chars=settings.micro_compaction_min_output_chars,
+        dynamic_workflow=settings.dynamic_workflow,
+        subagent_max_turns=settings.subagent_max_turns,
     )
 
 

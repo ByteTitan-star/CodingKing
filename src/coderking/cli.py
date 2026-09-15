@@ -1113,6 +1113,10 @@ async def _run_task(
         elif event.type == "approval_required":
             markup = print_run_event({"type": "approval_required", **payload})
             lines.append(Text.from_markup(markup))
+        elif event.type in {"subagent_start", "subagent_end", "plan_update"}:
+            markup = print_run_event({"type": event.type, **payload})
+            if markup:
+                lines.append(Text.from_markup(markup))
         elif event.type == "error":
             msg = str(payload.get("message", ""))[:100]
             lines.append(Text.from_markup(f"[ck.err]⏺ 错误[/ck.err] [ck.faint]{msg}[/ck.faint]"))

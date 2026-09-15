@@ -32,6 +32,10 @@ class RuntimeConfig:
     micro_compaction_threshold: float = 0.5
     micro_compaction_keep_recent_tool_results: int = 4
     micro_compaction_min_output_chars: int = 2_000
+    # Claude-Code-style orchestration: adds plan + agent tools, the
+    # orchestration prompt section and parallel per-turn tool execution.
+    dynamic_workflow: bool = False
+    subagent_max_turns: int = 16
 
 
 @dataclass

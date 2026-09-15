@@ -107,6 +107,84 @@ async def test_rpc_service_session_branch(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_rpc_service_session_list(tmp_path: Path) -> None:
+    from coderking_coding_agent.session.repo import SessionRepo
+
+    repo = SessionRepo(tmp_path, session_id="rpc-list-b")
+    repo.append("message", {"message": {"role": "user", "content": "second"}})
+    repo_a = SessionRepo(tmp_path, session_id="rpc-list-a")
+    repo_a.append("message", {"message": {"role": "user", "content": "first"}})
+    controller = MagicMock(spec=TaskController)
+    controller.tasks = {}
+    service = RpcService(tmp_path, controller=controller)
+
+    result = await service._session_list("session.list", {})
+    sessions = result["sessions"]
+    assert {s["session_id"] for s in sessions} == {"rpc-list-a", "rpc-list-b"}
+    by_id = {s["session_id"]: s for s in sessions}
+    # one root system node + one appended message node
+    assert by_id["rpc-list-a"]["nodes"] == 2
+    assert by_id["rpc-list-a"]["tokens"] == {"prompt": 0, "completion": 0}
+
+
+@pytest.mark.asyncio
+async def test_rpc_service_config_get_set(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    controller = MagicMock(spec=TaskController)
+    controller.settings = SimpleNamespace(model="gpt-4o-mini", reasoning_effort=None)
+    service = RpcService(tmp_path, controller=controller)
+
+    info = await service._config_get("config.get", {})
+    assert info["model"] == "gpt-4o-mini"
+    assert info["workspace"] == str(tmp_path.resolve())
+    assert info["reasoning_effort"] == "off"
+
+    updated = await service._config_set("config.set", {"model": "glm-4.7"})
+    assert updated["ok"] is True
+    assert updated["model"] == "glm-4.7"
+    assert controller.settings.model == "glm-4.7"
+
+    updated_effort = await service._config_set("config.set", {"reasoning_effort": "ultra"})
+    assert updated_effort["reasoning_effort"] == "ultra"
+    assert controller.settings.reasoning_effort == "ultra"
+
+    with pytest.raises(ValueError):
+        await service._config_set("config.set", {"model": "  "})
+    with pytest.raises(ValueError):
+        await service._config_set("config.set", {"reasoning_effort": "extreme"})
+
+
+@pytest.mark.asyncio
+async def test_session_list_marks_running_sessions(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from coderking_coding_agent.session.repo import SessionRepo
+
+    SessionRepo(tmp_path, session_id="sess-idle").append(
+        "message", {"message": {"role": "user", "content": "idle one"}}
+    )
+    SessionRepo(tmp_path, session_id="sess-live").append(
+        "message", {"message": {"role": "user", "content": "live one"}}
+    )
+    controller = MagicMock(spec=TaskController)
+    controller.tasks = {
+        "t-live": SimpleNamespace(
+            state=SimpleNamespace(session_id="sess-live", status=SimpleNamespace(value="running"))
+        ),
+        "t-done": SimpleNamespace(
+            state=SimpleNamespace(session_id="sess-idle", status=SimpleNamespace(value="succeeded"))
+        ),
+    }
+    service = RpcService(tmp_path, controller=controller)
+
+    result = await service._session_list("session.list", {})
+    by_id = {s["session_id"]: s for s in result["sessions"]}
+    assert by_id["sess-live"]["running"] is True
+    assert by_id["sess-idle"]["running"] is False
+
+
+@pytest.mark.asyncio
 async def test_notification_throughput_without_deadlock() -> None:
     stdout = io.StringIO()
     server = StdioJsonRpcServer({}, stdout=stdout)

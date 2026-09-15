@@ -8,6 +8,7 @@ from typing import Any
 
 from coderking.config import Settings, load_settings
 from coderking.controller import TaskController
+from coderking.registry import list_sessions
 from coderking_coding_agent.session.repo import SessionRepo
 from coderking_transport.rpc.stdio import StdioJsonRpcServer
 
@@ -47,6 +48,9 @@ class RpcService:
             "agent.rollback_checkpoint": self._agent_rollback_checkpoint,
             "session.load": self._session_load,
             "session.branch": self._session_branch,
+            "session.list": self._session_list,
+            "config.get": self._config_get,
+            "config.set": self._config_set,
         }
 
     async def run(self) -> None:
@@ -211,6 +215,54 @@ class RpcService:
         repo = SessionRepo(self.workspace, session_id=session_id)
         repo.branch_to(node_id)
         return {"head_id": repo.head_id, "session_id": session_id}
+
+    async def _session_list(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        limit = int(params.get("limit") or 50)
+        metas = list_sessions(self.workspace)[:limit]
+        running_sessions = {
+            task.state.session_id
+            for task in self.controller.tasks.values()
+            if task.state.session_id
+            and task.state.status.value in {"pending", "running", "waiting_approval"}
+        }
+        return {
+            "sessions": [
+                {
+                    "session_id": meta.session_id,
+                    "updated_at": meta.updated_at,
+                    "prompt": meta.prompt,
+                    "nodes": meta.nodes,
+                    "tokens": {"prompt": meta.token_input, "completion": meta.token_output},
+                    "running": meta.session_id in running_sessions,
+                }
+                for meta in metas
+            ]
+        }
+
+    async def _config_get(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        effort = getattr(self.controller.settings, "reasoning_effort", None)
+        return {
+            "model": self.controller.settings.model,
+            "workspace": str(self.workspace),
+            "reasoning_effort": effort if effort is not None else "off",
+        }
+
+    async def _config_set(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        model = str(params.get("model") or "").strip()
+        effort = str(params.get("reasoning_effort") or "").strip()
+        if not model and not effort:
+            raise ValueError("params.model or params.reasoning_effort is required")
+        if effort and effort not in {"off", "low", "medium", "high", "ultra"}:
+            raise ValueError("params.reasoning_effort must be one of off/low/medium/high/ultra")
+        if model:
+            self.controller.settings.model = model
+        if effort:
+            self.controller.settings.reasoning_effort = effort
+        return {
+            "ok": True,
+            "model": self.controller.settings.model,
+            "reasoning_effort": self.controller.settings.reasoning_effort,
+        }
 
 
 async def run_rpc_server(workspace: Path, *, settings: Settings | None = None) -> None:

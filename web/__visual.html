@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CoderKing Visual Harness</title>
+    <script>
+      /* Visual-acceptance mock bridge: simulates the Electron preload API with a
+       * scripted event stream. Dev-only file, never shipped; serves from web/ root. */
+      (function () {
+        var listeners = [];
+        var seq = 0;
+        function emit(type, payload) {
+          seq += 1;
+          var record = { id: "t1-" + String(seq).padStart(6, "0"), type: type, payload: payload };
+          listeners.forEach(function (fn) { fn(record); });
+        }
+        function iso(minutesAgo) {
+          return new Date(Date.now() - minutesAgo * 60000).toISOString();
+        }
+        var DIFF = [
+          "diff --git a/src/coderking/foo.py b/src/coderking/foo.py",
+          "--- a/src/coderking/foo.py",
+          "+++ b/src/coderking/foo.py",
+          "@@ -12,7 +12,10 @@ def summarize(items):",
+          "     total = 0",
+          "-    for item in items:",
+          "-        total += item",
+          "+    for item in items:",
+          "+        if item is None:",
+          "+            continue",
+          "+        total += item",
+          "     return total",
+          "",
+        ].join("\n");
+        var START_AT = Date.now();
+        var TASK = {
+          task_id: "t1",
+          run_id: "t1",
+          parent_run_id: null,
+          session_id: "s-live",
+          turn_id: "r1",
+          prompt: "",
+          status: "running",
+          role: "assistant",
+          iteration: 3,
+          event_cursor: 0,
+          plan: [
+            { title: "定位失败的测试与根因", done: true },
+            { title: "修复 summarize() 对 None 的处理", done: false },
+            { title: "运行 pytest 验证全部通过", done: false },
+          ],
+          changed_files: ["src/coderking/foo.py", "tests/test_foo.py"],
+          test_results: "",
+          model: "glm-4.7",
+          sandbox: { backend: "local", status: "ready" },
+          tokens: { prompt: 18432, completion: 2760 },
+          context: { estimated_tokens: 61200, compression_count: 1, micro_compaction_count: 2 },
+          checkpoints: { count: 2, latest_id: "cp2" },
+          errors: [],
+          timing: { created_at: new Date(START_AT).toISOString(), updated_at: new Date(START_AT).toISOString() },
+          events: [],
+        };
+        var SESS = [
+          { session_id: "s-live", updated_at: iso(27), prompt: "修复这个仓库里失败的单元测试，并解释根因。", nodes: 24, tokens: { prompt: 18432, completion: 2760 }, running: true },
+          { session_id: "s-20260914-2210", updated_at: iso(1560), prompt: "给现有模块补充类型标注和 docstring，不改行为。", nodes: 51, tokens: { prompt: 96210, completion: 18340 }, running: false },
+          { session_id: "s-20260912-0903", updated_at: iso(4300), prompt: "审查最近的改动，找出潜在 bug。", nodes: 12, tokens: { prompt: 40120, completion: 5210 }, running: false },
+        ];
+        var CPS = [
+          { checkpoint_id: "cp2", status: "created", tool: "edit", path: "src/coderking/foo.py", recoverable: true, reason: null },
+          { checkpoint_id: "cp1", status: "created", tool: "edit", path: "tests/test_foo.py", recoverable: true, reason: null },
+        ];
+        var CONFIG = { model: "glm-4.7", workspace: "/Users/wang/Desktop/project/demo-repo", reasoning_effort: "high" };
+        var started = false;
+        function startScript(text) {
+          if (started) return;
+          started = true;
+          TASK.prompt = text;
+          var steps = [
+            ["agent_status", { role: "assistant", status: "running" }],
+            ["plan_update", { plan: TASK.plan }],
+            ["tool_call", { tool: "read", status: "ok", arguments: { path: "src/coderking/foo.py" }, preview: "def summarize(items):\n    total = 0\n    for item in items:\n        total += item\n    return total" }],
+            ["tool_call", { tool: "bash", status: "ok", arguments: { command: "python -m pytest -x -q" }, preview: "FAILED tests/test_foo.py::test_none_input\nTypeError: unsupported operand type(s) for +=: 'int' and 'NoneType'\n3 failed, 41 passed in 2.31s" }],
+            ["test_result", { text: "FAILED tests/test_foo.py::test_none_input\nTypeError: unsupported operand\n3 failed, 41 passed in 2.31s" }],
+            ["approval_required", { reason: "write", tool: "edit", arguments: { path: "src/coderking/foo.py", old: "    for item in items:\n        total += item", new: "    for item in items:\n        if item is None:\n            continue\n        total += item" } }],
+            ["tool_call", { tool: "edit", status: "ok", arguments: { path: "src/coderking/foo.py" }, preview: "3 lines changed" }],
+            ["checkpoint", { checkpoint_id: "cp2", status: "created", tool: "edit", path: "src/coderking/foo.py", recoverable: true }],
+            ["file_change", { file: "src/coderking/foo.py", action: "edit" }],
+            ["content_delta", { text: "我定位到根因：`summarize()` 没有处理 `None` 元素，导致 `int + NoneType` 报错。\n\n**修复方案**：\n\n1. 跳过 `None` 元素（保持求和语义）\n2. 补充回归测试覆盖空值输入\n\n改动如下：\n\n```python\ndef summarize(items):\n    total = 0\n    for item in items:\n        if item is None:\n            continue\n        total += item\n    return total\n```\n\n运行 `pytest` 后 **44 passed**，问题关闭。" }],
+            ["tool_call", { tool: "bash", status: "ok", arguments: { command: "python -m pytest -q" }, preview: "44 passed in 2.02s" }],
+            ["test_result", { text: "44 passed in 2.02s" }],
+            ["done", { ok: true, summary: "atomic agent completed" }],
+          ];
+          steps.forEach(function (pair, i) {
+            setTimeout(function () {
+              if (pair[0] === "done") {
+                TASK.status = "succeeded";
+                TASK.test_results = "44 passed in 2.02s";
+                TASK.timing.finished_at = new Date().toISOString();
+              }
+              emit(pair[0], pair[1]);
+            }, 450 * (i + 1));
+          });
+        }
+        window.coderkingDesktop = {
+          useRpc: true,
+          openDirectory: function () { return Promise.resolve("/Users/wang/Desktop/project/demo-repo"); },
+          setWorkspace: function () { return Promise.resolve({ workspace: "/Users/wang/Desktop/project/demo-repo" }); },
+          prompt: function (params) { startScript(String(params.text || "")); return Promise.resolve({ task_id: "t1" }); },
+          getTask: function () { return Promise.resolve(JSON.parse(JSON.stringify(TASK))); },
+          getDiff: function () { return Promise.resolve({ diff: DIFF }); },
+          getTree: function () { return Promise.resolve({ files: ["README.md", "src/coderking/bar.py", "src/coderking/foo.py", "tests/test_foo.py"] }); },
+          readFile: function (p) { return Promise.resolve({ content: "# " + p.path + "\n\ndef summarize(items):\n    total = 0\n    for item in items:\n        if item is None:\n            continue\n        total += item\n    return total\n" }); },
+          approve: function () { return Promise.resolve({ ok: true }); },
+          reject: function () { return Promise.resolve({ ok: true }); },
+          rollback: function () { return Promise.resolve({ ok: true }); },
+          accept: function () { return Promise.resolve({ ok: true }); },
+          abort: function () { return Promise.resolve({ ok: true }); },
+          steer: function () { return Promise.resolve({ ok: true }); },
+          followUp: function () { return Promise.resolve({ ok: true }); },
+          retry: function () { return Promise.resolve({ task_id: "t2", parent_run_id: "t1" }); },
+          getCheckpoints: function () { return Promise.resolve({ checkpoints: CPS }); },
+          rollbackCheckpoint: function () { return Promise.resolve({ ok: true }); },
+          listSessions: function () { return Promise.resolve({ sessions: SESS }); },
+          loadSession: function (params) {
+            var sid = String(params.session_id || "");
+            var meta = SESS.filter(function (s) { return s.session_id === sid; })[0];
+            var messages = [];
+            if (meta) {
+              messages.push({ role: "user", content: meta.prompt });
+              messages.push({ role: "assistant", content: "已处理完成。主要改动集中在 `src/` 模块：\n\n- 补充类型标注\n- 修正 docstring\n\n测试全部通过。" });
+            }
+            return Promise.resolve({ session_id: sid, head_id: "n1", messages: messages });
+          },
+          getConfig: function () { return Promise.resolve(JSON.parse(JSON.stringify(CONFIG))); },
+          updateConfig: function (params) {
+            if (params && params.model) {
+              CONFIG.model = String(params.model);
+              TASK.model = CONFIG.model;
+            }
+            if (params && params.reasoning_effort) {
+              CONFIG.reasoning_effort = String(params.reasoning_effort);
+            }
+            return Promise.resolve({ ok: true, model: CONFIG.model, reasoning_effort: CONFIG.reasoning_effort });
+          },
+          onEvent: function (cb) {
+            listeners.push(cb);
+            return function () {};
+          },
+        };
+      })();
+    </script>
+    <script>
+      /* auto-discover the hashed vite bundle so rebuilds don't break the harness */
+      (function () {
+        fetch("./dist/assets/")
+          .then(function (r) { return r.text(); })
+          .then(function (html) {
+            var js = html.match(/index-[\w-]+\.js/);
+            var css = html.match(/index-[\w-]+\.css/);
+            if (css) {
+              var link = document.createElement("link");
+              link.rel = "stylesheet";
+              link.href = "./dist/assets/" + css[0];
+              document.head.appendChild(link);
+            }
+            if (js) {
+              var script = document.createElement("script");
+              script.type = "module";
+              script.src = "./dist/assets/" + js[0];
+              document.head.appendChild(script);
+            }
+          });
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

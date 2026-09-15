@@ -22,6 +22,7 @@ def test_scrub_env_strips_secret_prefixes(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-key-value")
     monkeypatch.setenv("CODERKING_OPENAI_API_KEY", "sk-host-only")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+    monkeypatch.setenv("SAFE_SECRET_ALIAS", "ghp_abcdefghijklmnopqrstuvwxyz")
     monkeypatch.setenv("PATH", os.environ.get("PATH", "/usr/bin"))
     monkeypatch.setenv("SAFE_CUSTOM", "keep-me")
 
@@ -29,6 +30,7 @@ def test_scrub_env_strips_secret_prefixes(monkeypatch: pytest.MonkeyPatch) -> No
     assert "OPENAI_API_KEY" not in cleaned
     assert "CODERKING_OPENAI_API_KEY" not in cleaned
     assert "ANTHROPIC_API_KEY" not in cleaned
+    assert "SAFE_SECRET_ALIAS" not in cleaned
     assert cleaned.get("SAFE_CUSTOM") == "keep-me"
     assert "PATH" in cleaned
     assert not any(contains_secret_marker(v) for v in cleaned.values())

@@ -140,6 +140,28 @@ def context_micro_compacted_event(
     )
 
 
+def checkpoint_event(
+    checkpoint_id: str,
+    status: str,
+    *,
+    tool: str,
+    path: str,
+    recoverable: bool,
+    reason: str | None = None,
+) -> AgentEvent:
+    return AgentEvent(
+        "checkpoint",
+        {
+            "checkpoint_id": checkpoint_id,
+            "status": status,
+            "tool": tool,
+            "path": path,
+            "recoverable": recoverable,
+            "reason": reason,
+        },
+    )
+
+
 def phase_change_event(*, phase: str, from_phase: str | None = None) -> AgentEvent:
     payload: dict[str, Any] = {"phase": phase}
     if from_phase is not None:

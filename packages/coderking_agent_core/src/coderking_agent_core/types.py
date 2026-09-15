@@ -33,6 +33,7 @@ class AgentTool:
     description: str
     parameters: dict[str, Any]
     execute: Callable[..., Awaitable[Any]]
+    execute_call: Callable[[str, dict[str, Any]], Awaitable[Any]] | None = None
 
 
 @dataclass

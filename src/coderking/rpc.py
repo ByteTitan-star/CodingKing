@@ -8,6 +8,7 @@ from typing import Any
 
 from coderking.config import Settings, load_settings
 from coderking.controller import TaskController
+from coderking.registry import list_sessions
 from coderking_coding_agent.session.repo import SessionRepo
 from coderking_transport.rpc.stdio import StdioJsonRpcServer
 
@@ -30,6 +31,7 @@ class RpcService:
     def _handlers(self) -> dict[str, Any]:
         return {
             "agent.prompt": self._agent_prompt,
+            "agent.retry": self._agent_retry,
             "agent.steer": self._agent_steer,
             "agent.follow_up": self._agent_follow_up,
             "agent.abort": self._agent_abort,
@@ -42,8 +44,13 @@ class RpcService:
             "agent.reject": self._agent_reject,
             "agent.rollback": self._agent_rollback,
             "agent.accept": self._agent_accept,
+            "agent.checkpoints": self._agent_checkpoints,
+            "agent.rollback_checkpoint": self._agent_rollback_checkpoint,
             "session.load": self._session_load,
             "session.branch": self._session_branch,
+            "session.list": self._session_list,
+            "config.get": self._config_get,
+            "config.set": self._config_set,
         }
 
     async def run(self) -> None:
@@ -74,6 +81,30 @@ class RpcService:
         self._idle_events[task_id] = idle
         self._event_tasks[task_id] = asyncio.create_task(self._forward_events(task_id, idle))
         return {"task_id": task_id}
+
+    async def _agent_retry(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        if not task_id:
+            raise ValueError("params.task_id is required")
+        skills_raw = params.get("skills") or []
+        if not isinstance(skills_raw, list) or not all(
+            isinstance(item, str) for item in skills_raw
+        ):
+            raise ValueError("params.skills must be a list of skill names")
+        task = await self.controller.retry(
+            task_id,
+            prompt=str(params.get("text") or "") or None,
+            auto_approve=bool(params.get("auto_approve", False)),
+            test_command=str(params.get("test_command") or "") or None,
+            skill_names=skills_raw,
+        )
+        new_task_id = task.state.task_id
+        idle = asyncio.Event()
+        self._idle_events[new_task_id] = idle
+        self._event_tasks[new_task_id] = asyncio.create_task(
+            self._forward_events(new_task_id, idle)
+        )
+        return {"task_id": new_task_id, "parent_run_id": task_id}
 
     async def _forward_events(self, task_id: str, idle: asyncio.Event) -> None:
         try:
@@ -139,12 +170,32 @@ class RpcService:
 
     async def _agent_rollback(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "")
-        self.controller.rollback(task_id)
+        await asyncio.to_thread(self.controller.rollback, task_id)
         return {"ok": True}
 
     async def _agent_accept(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
-        _task_id = str(params.get("task_id") or "")
-        return {"ok": True}
+        task_id = str(params.get("task_id") or "")
+        accepted = await asyncio.to_thread(self.controller.accept, task_id)
+        return {"ok": True, "accepted_checkpoints": accepted}
+
+    async def _agent_checkpoints(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        checkpoints = await asyncio.to_thread(self.controller.checkpoints, task_id)
+        return {"checkpoints": checkpoints}
+
+    async def _agent_rollback_checkpoint(
+        self, _method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "")
+        checkpoint_id = str(params.get("checkpoint_id") or "")
+        if not checkpoint_id:
+            raise ValueError("params.checkpoint_id is required")
+        checkpoint = await asyncio.to_thread(
+            self.controller.rollback_checkpoint,
+            task_id,
+            checkpoint_id,
+        )
+        return {"ok": True, "checkpoint": checkpoint}
 
     async def _session_load(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
         session_id = str(params.get("session_id") or "default")
@@ -164,6 +215,54 @@ class RpcService:
         repo = SessionRepo(self.workspace, session_id=session_id)
         repo.branch_to(node_id)
         return {"head_id": repo.head_id, "session_id": session_id}
+
+    async def _session_list(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        limit = int(params.get("limit") or 50)
+        metas = list_sessions(self.workspace)[:limit]
+        running_sessions = {
+            task.state.session_id
+            for task in self.controller.tasks.values()
+            if task.state.session_id
+            and task.state.status.value in {"pending", "running", "waiting_approval"}
+        }
+        return {
+            "sessions": [
+                {
+                    "session_id": meta.session_id,
+                    "updated_at": meta.updated_at,
+                    "prompt": meta.prompt,
+                    "nodes": meta.nodes,
+                    "tokens": {"prompt": meta.token_input, "completion": meta.token_output},
+                    "running": meta.session_id in running_sessions,
+                }
+                for meta in metas
+            ]
+        }
+
+    async def _config_get(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        effort = getattr(self.controller.settings, "reasoning_effort", None)
+        return {
+            "model": self.controller.settings.model,
+            "workspace": str(self.workspace),
+            "reasoning_effort": effort if effort is not None else "off",
+        }
+
+    async def _config_set(self, _method: str, params: dict[str, Any]) -> dict[str, Any]:
+        model = str(params.get("model") or "").strip()
+        effort = str(params.get("reasoning_effort") or "").strip()
+        if not model and not effort:
+            raise ValueError("params.model or params.reasoning_effort is required")
+        if effort and effort not in {"off", "low", "medium", "high", "ultra"}:
+            raise ValueError("params.reasoning_effort must be one of off/low/medium/high/ultra")
+        if model:
+            self.controller.settings.model = model
+        if effort:
+            self.controller.settings.reasoning_effort = effort
+        return {
+            "ok": True,
+            "model": self.controller.settings.model,
+            "reasoning_effort": self.controller.settings.reasoning_effort,
+        }
 
 
 async def run_rpc_server(workspace: Path, *, settings: Settings | None = None) -> None:

@@ -65,3 +65,13 @@ def test_format_micro_compaction_to_status() -> None:
         }
     )
     assert formatted == ("status", "context micro 8000 → 3000; tool results=5")
+
+
+def test_format_checkpoint_to_status() -> None:
+    formatted = format_agent_event(
+        {
+            "type": "checkpoint",
+            "payload": {"status": "applied", "path": "src/app.py"},
+        }
+    )
+    assert formatted == ("status", "checkpoint applied: src/app.py")

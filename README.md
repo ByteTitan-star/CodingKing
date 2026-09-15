@@ -132,11 +132,22 @@ codeking                          # bare command → interactive REPL (splash + 
 codeking new                      # start a fresh session (old ones are kept)
 codeking -r                       # pick a past session to resume (claude-style)
 codeking sessions                 # list sessions: id / task / tokens / node count
+codeking session tree             # inspect the current append-only session tree
+codeking session fork --from <id> --name <new-id>
 codeking run "Fix failing unit tests in this repo" -w .      # one-shot task
 codeking status && codeking diff && codeking test
+codeking tasks --status failed && codeking retry <task-id>
+codeking checkpoint list <task-id>
+codeking checkpoint rollback <checkpoint-id> --task <task-id> --yes
+codeking skills list
+codeking tools check && codeking mcp check
 ```
 
-In-chat: `/new` new session · `/trace` expand the collapsed tool trace · `/exit` quit. Slash commands autocomplete with descriptions. Replies stream token-by-token and render as Markdown; tool activity is collapsed to one summary line.
+In-chat: `/new` new session · `/trace` expand the collapsed tool trace · `/skills` list Skills · `/context`/`/compact` manage long context · `/reload` rescan resources · `/exit` quit. Slash commands autocomplete with descriptions. Replies stream token-by-token and render as Markdown; tool activity is collapsed to one summary line.
+
+Task JSON and append-only session JSONL remain the portable sources of truth. `.coderking/state.db`
+is a rebuildable SQLite index for status queries, event cursors, and execution leases; direct file-write
+tools also create binary-safe checkpoints under `.coderking/checkpoints/` before mutation.
 
 Configuration priority: shell env → project `.env` → `~/.coderking/.env` → `.coderking/config.yaml` → defaults. API keys are read from the environment only and must not be committed.
 
@@ -167,6 +178,15 @@ Open `http://127.0.0.1:5173`. For production, run `npm run build` — FastAPI se
 | `CODERKING_SANDBOX_MODE` | `auto`, `docker`, `local`, or `microvm` |
 | `CODERKING_MAX_ITERATIONS` | Max agent-loop turns (default 24) |
 | `CODERKING_ALLOW_COMMIT` | Allow the `git_commit` tool |
+| `CODERKING_CONTEXT_WINDOW` | Active model context window (default 128000) |
+| `CODERKING_COMPRESSION_ENABLED` | Enable automatic long-context compression (default true) |
+| `CODERKING_COMPRESSION_THRESHOLD` | Full-compression window threshold (default 0.75) |
+| `CODERKING_MICRO_COMPACTION_ENABLED` | Compact old large tool results before full compression (default true) |
+| `CODERKING_MICRO_COMPACTION_THRESHOLD` | Micro-compaction trigger relative to the full budget (default 0.5) |
+| `CODERKING_MICRO_COMPACTION_KEEP_RECENT_TOOL_RESULTS` | Recent tool results protected from micro-compaction (default 4) |
+| `CODERKING_MICRO_COMPACTION_MIN_OUTPUT_CHARS` | Minimum eligible tool-output size (default 2000) |
+| `CODERKING_DYNAMIC_TOOLS_ENABLED` | Enable workspace dynamic tools (default false) |
+| `CODERKING_MCP_ENABLED` | Enable allowlisted MCP tools (default false) |
 
 If the upstream API rejects the `thinking` field, the client strips it and retries once automatically.
 

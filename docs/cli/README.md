@@ -68,15 +68,21 @@ codeking             # 启动（会看到小男孩 + CNU 入场动画）
 | `codeking -r` | 交互式选择历史会话恢复（等于 `claude -r`） | ★★★ |
 | `codeking -r 2` | 直接恢复列表中第 2 个会话 | ★★ |
 | `codeking sessions` | 列出所有会话（时间/任务/消息数/token） | ★★ |
+| `codeking session tree [id]` | 查看追加式会话节点树与当前分支 | ★ |
+| `codeking session branch <node>` | 将会话 HEAD 切换到已有节点 | ★ |
+| `codeking session fork` | 从当前分支复制独立会话 | ★ |
 | `codeking skills list` | 列出项目级/全局/Cursor 兼容 Skills | ★★ |
 | `codeking skills show <name>` | 查看 Skill 内容与来源 | ★★ |
 | `codeking skills check` | 校验 Skill 清单、重复名与 token 限制 | ★ |
 | `codeking tools list/check` | 列出或校验项目动态工具 | ★ |
 | `codeking mcp list/check` | 查看配置或实际探测 allowlisted MCP servers | ★ |
-| `codeking tasks` | 列出当前工作区已持久化的任务 | ★★ |
+| `codeking tasks [--status failed]` | 通过 SQLite 索引列出/过滤持久化任务 | ★★ |
 | `codeking run "任务"` | 一次性执行任务，不进交互 | ★★★ |
+| `codeking retry <task_id>` | 以原上下文重试 failed/interrupted 任务，生成新 run | ★★ |
 | `codeking status` | 查看当前任务状态 | ★ |
 | `codeking stop <task_id>` | 取消运行中的任务 | ★ |
+| `codeking checkpoint list [task_id]` | 查看直接文件写工具的恢复点 | ★ |
+| `codeking checkpoint rollback <id> --task <task_id>` | 恢复单个文件检查点 | ★ |
 | `codeking diff` | 查看工作区的 git diff | ★★ |
 | `codeking test` | 在沙箱里跑测试（默认 `python -m pytest -q`） | ★ |
 | `codeking init` | 在项目里生成 `.coderking/` 配置模板和 AGENTS.md | ★★ |
@@ -110,6 +116,10 @@ codeking -r
 # 想干净地开个新话题
 codeking new
 
+# 检查当前分支，或从历史会话派生独立分支
+codeking session tree
+codeking session fork --from s-20260911-224836 --name experiment
+
 # 聊天过程中想换话题
 ❯ /new
 ```
@@ -131,10 +141,24 @@ codeking run "调用 MCP" --mcp                             # 显式启用 allow
 
 ```bash
 codeking status          # 最近一次任务的 ID、状态、变更文件数、token
+codeking tasks --status failed --limit 20
+codeking tasks --rebuild-index  # 从任务 JSON 重建派生的 state.db
+codeking retry <task_id>  # 仅 failed/interrupted；新 run 保留原会话上下文
 codeking stop <task_id>  # 取消运行中的任务（status 里能拿到 ID）
 codeking diff            # 看代理到底改了什么（git diff）
 codeking test            # 自己再跑一遍测试确认
+
+codeking checkpoint list <task_id>
+codeking checkpoint rollback <checkpoint_id> --task <task_id> --yes
 ```
+
+任务记录保存在 `<项目>/.coderking/tasks/*.json`，这是可移植事实源；
+`<项目>/.coderking/state.db` 是可随时重建的查询索引，并保存事件游标与短租约。
+可识别的直接文件写工具会先在 `.coderking/checkpoints/<task_id>/` 写入 binary-safe
+checkpoint。单点回滚采用内容哈希校验：文件若又被用户或后续工具修改，会拒绝覆盖；
+已 accept 的 checkpoint 也不能再做单点回滚。任意 `bash` 副作用不做逐文件 checkpoint，
+仍由任务级 workspace snapshot/rollback 负责。单文件 checkpoint 默认上限为 10 MB；无法
+建立可恢复基线时，对应直接写操作会 fail closed，而不是在无恢复点的情况下继续修改。
 
 ## 8. 聊天内命令
 
@@ -184,6 +208,10 @@ codeking test            # 自己再跑一遍测试确认
 | `CODERKING_COMPRESSION_THRESHOLD` | 窗口使用到该比例时压缩 | 0.75 |
 | `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为回复预留 token | 4096 |
 | `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时保护的最近消息数 | 20 |
+| `CODERKING_MICRO_COMPACTION_ENABLED` | 完整压缩前收缩旧的大型工具输出 | true |
+| `CODERKING_MICRO_COMPACTION_THRESHOLD` | 相对完整压缩预算的触发比例 | 0.5 |
+| `CODERKING_MICRO_COMPACTION_KEEP_RECENT_TOOL_RESULTS` | 保护的最近工具结果数 | 4 |
+| `CODERKING_MICRO_COMPACTION_MIN_OUTPUT_CHARS` | 工具输出可压缩的最小字符数 | 2000 |
 | `CODERKING_DYNAMIC_TOOLS_ENABLED` | 是否把项目动态工具合并进 Agent 工具面 | false |
 | `CODERKING_MCP_ENABLED` | 是否启动并合并 allowlisted MCP 工具 | false |
 | `CODERKING_MCP_TIMEOUT_SEC` | MCP 初始化和调用超时（秒） | 60 |

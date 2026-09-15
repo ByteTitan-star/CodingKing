@@ -17,6 +17,7 @@ YAML_KEYS = (
     "openai_base_url",
     "model",
     "disable_thinking",
+    "reasoning_effort",
     "sandbox_mode",
     "sandbox_timeout_sec",
     "sandbox_memory_mb",
@@ -51,6 +52,7 @@ ENV_MAP = {
     "openai_api_key": "CODERKING_OPENAI_API_KEY",
     "model": "CODERKING_MODEL",
     "disable_thinking": "CODERKING_DISABLE_THINKING",
+    "reasoning_effort": "CODERKING_REASONING_EFFORT",
     "sandbox_mode": "CODERKING_SANDBOX_MODE",
     "sandbox_timeout_sec": "CODERKING_SANDBOX_TIMEOUT_SEC",
     "sandbox_memory_mb": "CODERKING_SANDBOX_MEMORY_MB",
@@ -90,6 +92,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     model: str = "gpt-4o-mini"
     disable_thinking: bool = True
+    # off | low | medium | high | ultra — None falls back to disable_thinking
+    reasoning_effort: str | None = None
 
     sandbox_mode: SandboxMode = "auto"
     sandbox_timeout_sec: int = 120

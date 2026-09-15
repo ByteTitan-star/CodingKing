@@ -107,10 +107,12 @@ app.whenReady().then(() => {
     const bridge = requireBridge();
     const text = String(params?.text ?? "").trim();
     if (!text) throw new Error("text is required");
+    const sessionId = String(params?.session_id ?? "").trim();
     return bridge.call("agent.prompt", {
       text,
       auto_approve: Boolean(params?.auto_approve),
       test_command: params?.test_command ?? null,
+      session_id: sessionId || null,
     });
   });
 
@@ -178,6 +180,62 @@ app.whenReady().then(() => {
   ipcMain.handle("agent:accept", async (_event, params) => {
     const bridge = requireBridge();
     return bridge.call("agent.accept", { task_id: asTaskParams(params) });
+  });
+
+  ipcMain.handle("agent:retry", async (_event, params) => {
+    const bridge = requireBridge();
+    return bridge.call("agent.retry", {
+      task_id: asTaskParams(params),
+      text: String(params?.text ?? "") || null,
+      auto_approve: Boolean(params?.auto_approve),
+      skills: Array.isArray(params?.skills) ? params.skills : [],
+    });
+  });
+
+  ipcMain.handle("agent:checkpoints", async (_event, params) => {
+    const bridge = requireBridge();
+    return bridge.call("agent.checkpoints", { task_id: asTaskParams(params) });
+  });
+
+  ipcMain.handle("agent:rollbackCheckpoint", async (_event, params) => {
+    const bridge = requireBridge();
+    const checkpointId = String(params?.checkpoint_id ?? "").trim();
+    if (!checkpointId) throw new Error("checkpoint_id is required");
+    return bridge.call("agent.rollback_checkpoint", {
+      task_id: asTaskParams(params),
+      checkpoint_id: checkpointId,
+    });
+  });
+
+  ipcMain.handle("agent:listSessions", async (_event, params) => {
+    const bridge = requireBridge();
+    const limit = Number.parseInt(String(params?.limit ?? ""), 10);
+    return bridge.call("session.list", {
+      limit: Number.isFinite(limit) && limit > 0 ? limit : 50,
+    });
+  });
+
+  ipcMain.handle("agent:loadSession", async (_event, params) => {
+    const bridge = requireBridge();
+    const sessionId = String(params?.session_id ?? "").trim();
+    if (!sessionId) throw new Error("session_id is required");
+    return bridge.call("session.load", { session_id: sessionId });
+  });
+
+  ipcMain.handle("agent:getConfig", async () => {
+    const bridge = requireBridge();
+    return bridge.call("config.get", {});
+  });
+
+  ipcMain.handle("agent:updateConfig", async (_event, params) => {
+    const bridge = requireBridge();
+    const payload = {};
+    const model = String(params?.model ?? "").trim();
+    const effort = String(params?.reasoning_effort ?? "").trim();
+    if (model) payload.model = model;
+    if (effort) payload.reasoning_effort = effort;
+    if (!model && !effort) throw new Error("model or reasoning_effort is required");
+    return bridge.call("config.set", payload);
   });
 
   createWindow();

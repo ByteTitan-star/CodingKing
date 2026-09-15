@@ -46,6 +46,36 @@ async def test_agent_loop_runs_tool_then_stops() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_loop_assigns_distinct_turn_ids_to_messages() -> None:
+    turns = {"n": 0}
+    events: list[dict] = []
+
+    async def echo(**_kwargs: object) -> tuple[bool, str]:
+        return True, "ok"
+
+    async def complete_turn(_ctx: AgentContext) -> TurnResult:
+        turns["n"] += 1
+        if turns["n"] == 1:
+            return TurnResult(tool_calls=[new_tool_call("echo")], stop_reason="tool_use")
+        return TurnResult(content="done")
+
+    agent = Agent(
+        tools=[AgentTool("echo", "", {}, echo)],
+        complete_turn=complete_turn,
+    )
+    agent.subscribe(lambda event: _capture(events, event))
+    context = await agent.prompt("go")
+
+    starts = [event for event in events if event.get("type") == "turn_start"]
+    assert len(starts) == 2
+    assert starts[0]["turn_id"] != starts[1]["turn_id"]
+    generated = [message for message in context.messages if message.role in {"assistant", "tool"}]
+    assert all(message.meta.get("turn_id") for message in generated)
+    assert generated[0].meta["turn_id"] == generated[1].meta["turn_id"]
+    assert generated[-1].meta["turn_id"] == starts[-1]["turn_id"]
+
+
+@pytest.mark.asyncio
 async def test_agent_loop_emits_phase_change_sequence() -> None:
     async def echo(**kwargs: object) -> tuple[bool, str]:
         return True, "ok"
@@ -189,3 +219,7 @@ async def _async_true() -> bool:
 
 async def _record(events: list[str], event: dict) -> None:
     events.append(str(event.get("type")))
+
+
+async def _capture(events: list[dict], event: dict) -> None:
+    events.append(dict(event))

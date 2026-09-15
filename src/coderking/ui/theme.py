@@ -139,6 +139,10 @@ def print_run_event(payload: dict) -> str:
     if etype == "resource_diagnostic":
         message = escape(str(payload.get("message") or "resource loading issue"))
         return f"[ck.warn]⚠ {message}[/ck.warn]"
+    if etype == "checkpoint":
+        status = escape(str(payload.get("status") or "?"))
+        path = escape(str(payload.get("path") or "?"))
+        return f"[ck.dim]⏺ checkpoint {status}: {path}[/ck.dim]"
     if etype == "context_micro_compacted":
         before = int(payload.get("before_tokens") or 0)
         after = int(payload.get("after_tokens") or 0)

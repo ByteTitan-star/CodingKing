@@ -14,6 +14,41 @@ from coderking_llm.provider import LLMResponse, ToolCall
 from coderking_llm.retry import RetryPolicy
 
 
+def _payload(effort: str | None = None, disable: bool = False) -> dict:
+    config = OpenAICompatConfig(
+        api_key="k",
+        base_url="http://x/v1",
+        model="m",
+        disable_thinking=disable,
+        reasoning_effort=effort,
+    )
+    provider = OpenAICompatProvider(config)
+    return provider._build_payload([], [])
+
+
+def test_payload_reasoning_effort_levels() -> None:
+    on = _payload(effort="ultra")
+    assert on["reasoning_effort"] == "ultra"
+    assert on["thinking"] == {"type": "enabled"}
+    assert on["enable_thinking"] is True
+
+    off = _payload(effort="off")
+    assert "reasoning_effort" not in off
+    assert off["thinking"] == {"type": "disabled"}
+    assert off["enable_thinking"] is False
+
+
+def test_payload_effort_overrides_legacy_disable_flag() -> None:
+    # explicit effort wins over disable_thinking
+    mixed = _payload(effort="high", disable=True)
+    assert mixed["reasoning_effort"] == "high"
+    assert mixed["enable_thinking"] is True
+
+    legacy = _payload(disable=True)
+    assert legacy["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in legacy
+
+
 def test_parse_chat_completion_tools_and_usage() -> None:
     data = {
         "choices": [

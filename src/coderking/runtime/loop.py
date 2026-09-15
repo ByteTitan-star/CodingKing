@@ -114,11 +114,11 @@ class AgentRuntime:
             self.settings, test_command=test_command
         )
         active_state = state or AgentState(task=prompt, repository=str(workspace.resolve()))
-        clear_cancel(workspace, active_state.task_id)
+        await asyncio.to_thread(clear_cancel, workspace, active_state.task_id)
 
         async def watch_external_cancel() -> None:
             while not self.cancel.cancelled:
-                if cancel_requested(workspace, active_state.task_id):
+                if await asyncio.to_thread(cancel_requested, workspace, active_state.task_id):
                     active_state.cancel_requested = True
                     self.cancel.cancel()
                     return
@@ -141,10 +141,10 @@ class AgentRuntime:
                 interrupted = self.cancel.cancelled
                 active_state.status = TaskStatus.INTERRUPTED if interrupted else TaskStatus.FAILED
                 active_state.errors.append(str(exc))
-                persist_state(workspace, active_state)
+                await asyncio.to_thread(persist_state, workspace, active_state)
                 await on_event(error_event(str(exc)))
                 await on_event(done_event(False, "interrupted" if interrupted else str(exc)))
-                clear_cancel(workspace, active_state.task_id)
+                await asyncio.to_thread(clear_cancel, workspace, active_state.task_id)
                 return active_state
         finally:
             watcher.cancel()

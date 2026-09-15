@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from coderking.cli import app
 from coderking.config import load_settings
 from coderking.registry import current_session_id, load_session, persist_state, save_session
+from coderking.runtime.checkpoints import CheckpointStore
 from coderking.runtime.state import AgentState, Role, TaskStatus
 
 runner = CliRunner()
@@ -35,6 +36,8 @@ def test_cli_help() -> None:
     assert "tasks" in out
     assert "tools" in out
     assert "mcp" in out
+    assert "retry" in out
+    assert "checkpoint" in out
 
 
 def test_run_help_exposes_test_soft_hint() -> None:
@@ -165,6 +168,74 @@ def test_tasks_lists_persisted_records(tmp_path: Path) -> None:
     assert "task-first" in result.stdout
     assert "task-second" in result.stdout
 
+    filtered = runner.invoke(
+        app,
+        ["tasks", "--status", "failed", "--workspace", str(tmp_path)],
+    )
+    assert filtered.exit_code == 0
+    assert "task-second" in filtered.stdout
+    assert "task-first" not in filtered.stdout
+
+    rebuilt = runner.invoke(
+        app,
+        ["tasks", "--rebuild-index", "--workspace", str(tmp_path)],
+    )
+    assert rebuilt.exit_code == 0
+    assert "rebuilt task index from 2 record(s)" in rebuilt.stdout
+
+
+def test_retry_rejects_successful_persisted_task(tmp_path: Path) -> None:
+    state = AgentState(task="done", repository=str(tmp_path), task_id="successful-task")
+    state.status = TaskStatus.SUCCEEDED
+    persist_state(tmp_path, state)
+
+    result = runner.invoke(app, ["retry", state.task_id, "--workspace", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "only failed or interrupted" in result.stdout
+
+
+def test_checkpoint_list_and_rollback_commands(tmp_path: Path) -> None:
+    state = AgentState(task="edit", repository=str(tmp_path), task_id="checkpoint-task")
+    state.status = TaskStatus.SUCCEEDED
+    target = tmp_path / "a.txt"
+    target.write_text("before", encoding="utf-8")
+    store = CheckpointStore(tmp_path, tmp_path, state.task_id)
+    prepared = store.prepare(
+        turn_id="turn_a",
+        tool_call_id=None,
+        tool="edit",
+        arguments={"path": "a.txt"},
+    )
+    assert prepared is not None
+    target.write_text("after", encoding="utf-8")
+    store.complete(prepared.checkpoint_id, ok=True)
+    state.checkpoint_count = 1
+    state.latest_checkpoint_id = prepared.checkpoint_id
+    persist_state(tmp_path, state)
+
+    listed = runner.invoke(
+        app,
+        ["checkpoint", "list", state.task_id, "--workspace", str(tmp_path)],
+    )
+    assert listed.exit_code == 0
+    assert prepared.checkpoint_id in listed.stdout
+    rolled = runner.invoke(
+        app,
+        [
+            "checkpoint",
+            "rollback",
+            prepared.checkpoint_id,
+            "--task",
+            state.task_id,
+            "--workspace",
+            str(tmp_path),
+            "--yes",
+        ],
+    )
+    assert rolled.exit_code == 0
+    assert target.read_text(encoding="utf-8") == "before"
+
 
 def test_tools_list_and_check_dynamic_manifest(tmp_path: Path) -> None:
     tool_dir = tmp_path / ".coderking" / "tools" / "demo"
@@ -276,3 +347,14 @@ def test_session_tree_and_fork_commands(tmp_path: Path) -> None:
     assert forked.exit_code == 0
     assert current_session_id(tmp_path) == "forked-session"
     assert load_session(tmp_path, "forked-session")["messages"] == payload["messages"]
+
+
+def test_session_tree_does_not_create_missing_session(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["session", "tree", "missing", "--workspace", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert "does not exist" in result.stdout
+    assert not (tmp_path / ".coderking" / "sessions" / "missing.jsonl").exists()

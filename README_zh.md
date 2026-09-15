@@ -132,8 +132,13 @@ codeking                    # 裸命令直接进交互会话（入场动画 + �
 codeking new                # 开一条新会话（旧的保留）
 codeking -r                 # 交互式选择历史会话恢复（claude 同款）
 codeking sessions           # 会话列表：ID / 任务 / tokens / 消息数
+codeking session tree       # 查看当前会话的追加式节点树
+codeking session fork --from <id> --name <new-id>
 codeking run "修复失败的单元测试" -w .    # 一次性任务
 codeking status && codeking diff && codeking test
+codeking tasks --status failed && codeking retry <task-id>
+codeking checkpoint list <task-id>
+codeking checkpoint rollback <checkpoint-id> --task <task-id> --yes
 codeking skills list
 codeking run --skill code-review "审查当前改动"
 codeking tools check && codeking run --dynamic-tools "调用项目自定义工具"
@@ -143,6 +148,10 @@ codeking eval --path eval/tasks --report-dir eval/reports
 
 会话内：`/new` 新会话 · `/trace` 展开折叠的工具轨迹 · `/skills` 查看技能 ·
 `/context`/`/compact` 管理长上下文 · `/reload` 重扫资源 · `/exit` 退出；斜杠命令带描述自动补全；模型回复逐 token 流式输出并按 Markdown 渲染，工具过程折叠为一行摘要。
+
+任务 JSON 与追加式会话 JSONL 仍是可移植事实源；`.coderking/state.db` 是可重建的
+SQLite 状态索引，用于查询、事件游标和执行租约。直接文件写工具在变更前还会把二进制安全
+checkpoint 写入 `.coderking/checkpoints/`。
 
 配置优先级：shell 环境变量 > 项目 `.env` > `~/.coderking/.env` > `.coderking/config.yaml` > 默认值。API Key 只走环境变量，勿写入 yaml 或提交 Git。
 
@@ -175,6 +184,10 @@ cd web && npm install && npm run dev
 | `CODERKING_COMPRESSION_THRESHOLD` | 触发压缩的窗口比例（默认 0.75） |
 | `CODERKING_COMPRESSION_RESERVE_TOKENS` | 为模型回复预留的 token（默认 4096） |
 | `CODERKING_COMPRESSION_KEEP_RECENT_MESSAGES` | 压缩时至少保留的最近消息数（默认 20） |
+| `CODERKING_MICRO_COMPACTION_ENABLED` | 完整压缩前先收缩旧的大型工具输出（默认 true） |
+| `CODERKING_MICRO_COMPACTION_THRESHOLD` | 微压缩相对完整压缩预算的触发比例（默认 0.5） |
+| `CODERKING_MICRO_COMPACTION_KEEP_RECENT_TOOL_RESULTS` | 不参与微压缩的最近工具结果数（默认 4） |
+| `CODERKING_MICRO_COMPACTION_MIN_OUTPUT_CHARS` | 可微压缩工具输出的最小字符数（默认 2000） |
 | `CODERKING_DYNAMIC_TOOLS_ENABLED` | 显式启用项目动态工具（默认 false） |
 | `CODERKING_MCP_ENABLED` | 显式启用 allowlisted MCP 工具（默认 false） |
 | `CODERKING_MCP_TIMEOUT_SEC` | MCP 初始化/调用超时（默认 60 秒） |

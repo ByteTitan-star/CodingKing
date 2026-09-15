@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -23,10 +24,12 @@ from coderking_coding_agent.context.skills import (
 )
 from coderking_coding_agent.context.transform import ContextCompressor, make_transform_context
 from coderking_coding_agent.diffing import snapshot_workspace
+from coderking_coding_agent.runtime.checkpoints import CheckpointStore
 from coderking_coding_agent.runtime.config import RuntimeBindings, RuntimeConfig, RuntimeResources
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
+    checkpoint_event,
     content_delta_event,
     context_compressed_event,
     context_micro_compacted_event,
@@ -62,13 +65,18 @@ def wrap_phase1_tool(
     state: AgentState,
     approve: ApprovalFn | None,
     auto_approve: bool,
-    persist: Callable[[], None] | None = None,
+    persist: Callable[[], Awaitable[None]] | None = None,
+    checkpoint_store: CheckpointStore | None = None,
 ) -> AgentTool:
     schema = tool.schema()
     fn = schema.get("function") or {}
     parameters = fn.get("parameters") or tool.parameters
 
-    async def execute(**kwargs: Any) -> tuple[bool, str]:
+    async def execute_with_context(
+        kwargs: dict[str, Any],
+        *,
+        tool_call_id: str | None,
+    ) -> tuple[bool, str]:
         legacy_approval = bool(getattr(tool, "requires_approval", False))
         decision = policy_engine.evaluate(
             tool.name,
@@ -90,24 +98,108 @@ def wrap_phase1_tool(
         if decision.action == PolicyAction.ASK and not auto_approve:
             state.status = TaskStatus.WAITING_APPROVAL
             if persist is not None:
-                persist()
+                await persist()
             await on_event(approval_event(decision.reason, tool.name, kwargs))
             allowed = False
             if approve is not None:
                 allowed = await approve(tool.name, decision.reason, kwargs)
             state.status = TaskStatus.RUNNING
             if persist is not None:
-                persist()
+                await persist()
             if not allowed:
                 return False, "user rejected the operation"
-        result = await tool.execute(**kwargs)
+        prepared = None
+        if checkpoint_store is not None:
+            try:
+                prepared = await asyncio.to_thread(
+                    checkpoint_store.prepare,
+                    turn_id=state.turn_id,
+                    tool_call_id=tool_call_id,
+                    tool=tool.name,
+                    arguments=kwargs,
+                )
+            except (OSError, ValueError) as exc:
+                await on_event(
+                    checkpoint_event(
+                        "unavailable",
+                        "error",
+                        tool=tool.name,
+                        path=str(kwargs.get("path") or ""),
+                        recoverable=False,
+                        reason=str(exc),
+                    )
+                )
+                return False, f"checkpoint failed; mutation blocked: {exc}"
+            if prepared is not None:
+                state.checkpoint_count += 1
+                state.latest_checkpoint_id = prepared.checkpoint_id
+                if persist is not None:
+                    await persist()
+                await on_event(
+                    checkpoint_event(
+                        prepared.checkpoint_id,
+                        "prepared",
+                        tool=tool.name,
+                        path=prepared.path,
+                        recoverable=prepared.recoverable,
+                        reason=prepared.reason,
+                    )
+                )
+                if not prepared.recoverable:
+                    await asyncio.to_thread(
+                        checkpoint_store.complete,
+                        prepared.checkpoint_id,
+                        ok=False,
+                    )
+                    return False, f"mutation blocked: {prepared.reason}"
+        try:
+            result = await tool.execute(**kwargs)
+        except Exception:
+            if checkpoint_store is not None and prepared is not None:
+                await asyncio.to_thread(
+                    checkpoint_store.complete,
+                    prepared.checkpoint_id,
+                    ok=False,
+                )
+                await on_event(
+                    checkpoint_event(
+                        prepared.checkpoint_id,
+                        "failed",
+                        tool=tool.name,
+                        path=prepared.path,
+                        recoverable=prepared.recoverable,
+                    )
+                )
+            raise
+        if checkpoint_store is not None and prepared is not None:
+            await asyncio.to_thread(
+                checkpoint_store.complete,
+                prepared.checkpoint_id,
+                ok=bool(result.ok),
+            )
+            await on_event(
+                checkpoint_event(
+                    prepared.checkpoint_id,
+                    "applied" if result.ok else "failed",
+                    tool=tool.name,
+                    path=prepared.path,
+                    recoverable=prepared.recoverable,
+                )
+            )
         return bool(result.ok), str(result.output)
+
+    async def execute(**kwargs: Any) -> tuple[bool, str]:
+        return await execute_with_context(kwargs, tool_call_id=None)
+
+    async def execute_call(tool_call_id: str, arguments: dict[str, Any]) -> tuple[bool, str]:
+        return await execute_with_context(arguments, tool_call_id=tool_call_id)
 
     return AgentTool(
         name=tool.name,
         description=str(fn.get("description") or tool.description),
         parameters=parameters if isinstance(parameters, dict) else {},
         execute=execute,
+        execute_call=execute_call,
     )
 
 
@@ -214,41 +306,54 @@ class AtomicL1Runtime:
         state.finished_at = None
         state.role = Role.CODING
         state.cancel_requested = False
+
+        downstream_on_event = on_event
+
+        async def emit_event(event: AgentEvent) -> None:
+            state.event_cursor += 1
+            await downstream_on_event(event)
+
         if not state.snapshot:
-            state.snapshot = snapshot_workspace(source)
-        self.bindings.persist_state(source, state)
+            state.snapshot = await asyncio.to_thread(snapshot_workspace, source)
+
+        async def persist() -> None:
+            await asyncio.to_thread(self.bindings.persist_state, source, state)
+
+        await persist()
         cow: CowWorkspace | None = None
         if self.config.sandbox_cow:
             cow = CowWorkspace(source, session_id=state.task_id)
-            workspace = cow.materialize()
+            workspace = await asyncio.to_thread(cow.materialize)
 
         sandbox, note = await self.bindings.create_sandbox(workspace, cow)
         if self.cancel is not None:
             sandbox.cancel = self.cancel  # type: ignore[attr-defined]
         state.sandbox_backend = sandbox.name
         state.sandbox_status = "active"
-        await on_event(sandbox_event(sandbox.name, "active", note=note))
-        await on_event(status_event(state.role, state.status))
+        await emit_event(sandbox_event(sandbox.name, "active", note=note))
+        await emit_event(status_event(state.role, state.status))
 
         policy_engine = PolicyEngine.load(source)
+        checkpoint_store = CheckpointStore(source, workspace, state.task_id)
         resources: RuntimeResources | None = None
         if self.bindings.load_resources is not None:
             resources = await self.bindings.load_resources(workspace, sandbox)
             phase1_tools = dict(resources.tools)
             for diagnostic in resources.diagnostics:
-                await on_event(AgentEvent("resource_diagnostic", {"message": diagnostic}))
+                await emit_event(AgentEvent("resource_diagnostic", {"message": diagnostic}))
         else:
             phase1_tools = dict(self.bindings.build_tools(workspace, sandbox))
         agent_tools = [
             wrap_phase1_tool(
                 tool,
                 policy_engine=policy_engine,
-                on_event=on_event,
+                on_event=emit_event,
                 source=source,
                 state=state,
                 approve=approve,
                 auto_approve=auto_approve,
-                persist=lambda: self.bindings.persist_state(source, state),
+                persist=persist,
+                checkpoint_store=checkpoint_store,
             )
             for tool in phase1_tools.values()
         ]
@@ -271,7 +376,7 @@ class AtomicL1Runtime:
             ]
             seed, project_doc = inject_project_instructions(source, seed)
             if project_doc is not None:
-                await on_event(
+                await emit_event(
                     project_instructions_event(
                         project_doc.source,
                         project_doc.content_hash,
@@ -299,7 +404,7 @@ class AtomicL1Runtime:
             insert_at=current_user_index,
         )
         for skill in [*explicit_skills, *matched_skills]:
-            await on_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
+            await emit_event(skill_injected_event(skill.manifest.name, truncated=skill.truncated))
         initial_messages = [
             agent_message_from_dict(m)
             for index, m in enumerate(seed)
@@ -314,7 +419,7 @@ class AtomicL1Runtime:
                 after = int(payload.get("after_tokens") or 0)
                 state.compression_count += 1
                 state.context_tokens_estimated = after
-                await on_event(
+                await emit_event(
                     context_compressed_event(
                         before,
                         after,
@@ -327,7 +432,7 @@ class AtomicL1Runtime:
                 compacted = int(payload.get("tool_results_compacted") or 0)
                 state.micro_compaction_count += 1
                 state.context_tokens_estimated = after
-                await on_event(
+                await emit_event(
                     context_micro_compacted_event(
                         before,
                         after,
@@ -335,7 +440,7 @@ class AtomicL1Runtime:
                     )
                 )
             elif kind:
-                await on_event(AgentEvent(kind, payload))
+                await emit_event(AgentEvent(kind, payload))
 
         compressor = ContextCompressor(
             budget=TokenBudget(
@@ -352,7 +457,7 @@ class AtomicL1Runtime:
         )
 
         async def complete_turn(ctx: AgentContext) -> TurnResult:
-            if self.bindings.cancel_requested(source, state.task_id):
+            if await asyncio.to_thread(self.bindings.cancel_requested, source, state.task_id):
                 state.cancel_requested = True
                 self._run_cancel.abort()
             if self.cancel is not None and getattr(self.cancel, "cancelled", False):
@@ -407,9 +512,9 @@ class AtomicL1Runtime:
             return not turn.tool_calls
 
         async def emit(event: dict[str, Any]) -> None:
-            await _bridge_l1_event(event, on_event, state, pending_args)
+            await _bridge_l1_event(event, emit_event, state, pending_args)
             if event.get("type") in {"turn_start", "tool_execution_end", "error", "agent_end"}:
-                self.bindings.persist_state(source, state)
+                await persist()
 
         pending_args: dict[str, dict[str, Any]] = {}
         try:
@@ -440,18 +545,18 @@ class AtomicL1Runtime:
             state.context_tokens_estimated = estimate_messages_tokens(final.messages)
             if state.status == TaskStatus.RUNNING:
                 state.status = TaskStatus.SUCCEEDED
-                await on_event(done_event(True, "atomic agent completed"))
+                await emit_event(done_event(True, "atomic agent completed"))
         except (CancelledRun, Exception) as exc:
             if isinstance(exc, CancelledRun) or (
                 self.cancel is not None and getattr(self.cancel, "cancelled", False)
             ):
                 state.status = TaskStatus.INTERRUPTED
-                await on_event(done_event(False, "interrupted"))
+                await emit_event(done_event(False, "interrupted"))
             else:
                 state.status = TaskStatus.FAILED
                 state.errors.append(str(exc))
-                await on_event(error_event(str(exc)))
-                await on_event(done_event(False, str(exc)))
+                await emit_event(error_event(str(exc)))
+                await emit_event(done_event(False, str(exc)))
         finally:
             if resources is not None:
                 try:
@@ -459,21 +564,23 @@ class AtomicL1Runtime:
                 except Exception as exc:
                     message = f"resource cleanup failed: {exc}"
                     state.errors.append(message)
-                    await on_event(AgentEvent("resource_diagnostic", {"message": message}))
+                    await emit_event(AgentEvent("resource_diagnostic", {"message": message}))
             try:
                 await sandbox.close()
             except Exception as exc:
                 message = f"sandbox cleanup failed: {exc}"
                 state.errors.append(message)
                 state.status = TaskStatus.FAILED
-                await on_event(error_event(message))
+                await emit_event(error_event(message))
             state.sandbox_status = "idle"
             if cow is not None:
                 if state.status == TaskStatus.SUCCEEDED:
-                    cow.promote()
-                cow.close()
-            self.bindings.persist_state(source, state)
-            self.bindings.clear_cancel(source, state.task_id)
+                    await asyncio.to_thread(cow.promote)
+                else:
+                    await asyncio.to_thread(checkpoint_store.mark_all_rolled_back)
+                await asyncio.to_thread(cow.close)
+            await persist()
+            await asyncio.to_thread(self.bindings.clear_cancel, source, state.task_id)
         return state
 
 
@@ -486,6 +593,7 @@ async def _bridge_l1_event(
     kind = str(event.get("type") or "")
     if kind == "turn_start":
         state.iteration = int(event.get("turn") or 0)
+        state.turn_id = str(event.get("turn_id") or "") or None
         return
     if kind == "phase_change":
         await on_event(

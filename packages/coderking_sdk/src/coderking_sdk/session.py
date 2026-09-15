@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from coderking.config import Settings, load_settings
 from coderking.controller import TaskController
+from coderking.runtime.state import AgentState, TaskStatus, new_run_state
 
 
 class AgentSession:
@@ -44,6 +45,7 @@ class AgentSession:
         self.test_command = test_command
         self._controller = TaskController(settings, llm=llm)
         self._task_id: str | None = None
+        self._state: AgentState | None = None
         self.session_id = f"sdk-{uuid4().hex[:12]}"
         self._closed = False
 
@@ -80,6 +82,19 @@ class AgentSession:
         """Start a task and yield event records until the run completes."""
         if self._closed:
             raise RuntimeError("AgentSession is closed")
+        if self._state is not None and self._state.status in {
+            TaskStatus.PENDING,
+            TaskStatus.RUNNING,
+            TaskStatus.CANCELLING,
+            TaskStatus.WAITING_APPROVAL,
+        }:
+            raise RuntimeError("another task is still active in this AgentSession")
+        state = new_run_state(
+            prompt,
+            str(self.workspace),
+            previous=self._state,
+            session_id=self.session_id,
+        )
         managed = await self._controller.create_task(
             prompt,
             self.workspace,
@@ -87,8 +102,10 @@ class AgentSession:
             test_command=self.test_command,
             skill_names=skills,
             session_id=self.session_id,
+            state=state,
         )
         self._task_id = managed.state.task_id
+        self._state = managed.state
         async for record in self._controller.subscribe_records(self._task_id):
             yield record
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from coderking_coding_agent.runtime.events import (
     AgentEvent,
     approval_event,
+    checkpoint_event,
     content_delta_event,
     context_compressed_event,
     context_micro_compacted_event,
@@ -29,6 +30,7 @@ from coderking_coding_agent.runtime.events import (
 __all__ = [
     "AgentEvent",
     "approval_event",
+    "checkpoint_event",
     "content_delta_event",
     "context_compressed_event",
     "context_micro_compacted_event",

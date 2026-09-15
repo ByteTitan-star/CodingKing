@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -88,7 +89,25 @@ async def test_atomic_l1_scripted_edit_loop(tmp_path: Path) -> None:
     assert any(r.name == "edit" and r.ok for r in state.tool_history)
     assert state.changed_files == ["calc.py"]
     assert state.iteration == 2
+    assert state.turn_id and state.turn_id.startswith("turn_")
     assert state.snapshot
+    assert state.checkpoint_count == 1
+    assert state.latest_checkpoint_id
+    assert [event.payload.get("status") for event in events if event.type == "checkpoint"] == [
+        "prepared",
+        "applied",
+    ]
+    checkpoint = (
+        tmp_path
+        / ".coderking"
+        / "checkpoints"
+        / state.task_id
+        / f"{state.latest_checkpoint_id}.json"
+    )
+    assert checkpoint.is_file()
+    checkpoint_payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert checkpoint_payload["tool_call_id"].startswith("edit-")
+    assert checkpoint_payload["turn_id"]
     names = {
         (t.get("function") or {}).get("name") for t in (llm.last_tools or []) if isinstance(t, dict)
     }

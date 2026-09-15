@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld("coderkingDesktop", {
   reject: (params) => ipcRenderer.invoke("agent:reject", params),
   rollback: (params) => ipcRenderer.invoke("agent:rollback", params),
   accept: (params) => ipcRenderer.invoke("agent:accept", params),
+  retry: (params) => ipcRenderer.invoke("agent:retry", params),
+  getCheckpoints: (params) => ipcRenderer.invoke("agent:checkpoints", params),
+  rollbackCheckpoint: (params) => ipcRenderer.invoke("agent:rollbackCheckpoint", params),
+  listSessions: (params) => ipcRenderer.invoke("agent:listSessions", params),
+  loadSession: (params) => ipcRenderer.invoke("agent:loadSession", params),
+  getConfig: () => ipcRenderer.invoke("agent:getConfig"),
+  updateConfig: (params) => ipcRenderer.invoke("agent:updateConfig", params),
   onEvent: (callback) => {
     if (typeof callback !== "function") {
       return () => undefined;

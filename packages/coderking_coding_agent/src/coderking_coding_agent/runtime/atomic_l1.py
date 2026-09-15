@@ -46,6 +46,11 @@ from coderking_coding_agent.runtime.events import (
 )
 from coderking_coding_agent.runtime.queues import RunMessageQueues
 from coderking_coding_agent.runtime.state import AgentState, Role, TaskStatus, ToolRecord
+from coderking_coding_agent.runtime.subagent import (
+    DYNAMIC_WORKFLOW_PROMPT,
+    make_plan_tool,
+    make_subagent_tool,
+)
 from coderking_coding_agent.runtime.support import audit_policy_decision
 from coderking_coding_agent.safety.policy import PolicyAction, PolicyEngine
 from coderking_coding_agent.sandbox.cow import CowWorkspace
@@ -343,6 +348,27 @@ class AtomicL1Runtime:
                 await emit_event(AgentEvent("resource_diagnostic", {"message": diagnostic}))
         else:
             phase1_tools = dict(self.bindings.build_tools(workspace, sandbox))
+        system_prompt = self.system_prompt
+        if self.config.dynamic_workflow:
+            # Claude-Code-style orchestration: plan + agent tools and the
+            # orchestration prompt section; default tool surface stays intact.
+            phase1_tools["plan"] = make_plan_tool(state, emit_event)
+            phase1_tools["agent"] = make_subagent_tool(
+                llm=self.llm,
+                tools_pool=dict(phase1_tools),
+                workspace=workspace,
+                source=source,
+                sandbox=sandbox,
+                policy_engine=policy_engine,
+                checkpoint_store=checkpoint_store,
+                parent_state=state,
+                approve=approve,
+                auto_approve=auto_approve,
+                cancel=self.cancel,
+                max_turns=self.config.subagent_max_turns,
+                on_event=emit_event,
+            )
+            system_prompt = f"{self.system_prompt}\n{DYNAMIC_WORKFLOW_PROMPT}"
         agent_tools = [
             wrap_phase1_tool(
                 tool,
@@ -357,7 +383,7 @@ class AtomicL1Runtime:
             )
             for tool in phase1_tools.values()
         ]
-        context = AgentContext(system_prompt=self.system_prompt, tools=agent_tools)
+        context = AgentContext(system_prompt=system_prompt, tools=agent_tools)
 
         # Restore the actual transcript, then add this turn. Project instructions
         # are session-scoped; skills may be activated on any later turn.
@@ -371,7 +397,7 @@ class AtomicL1Runtime:
             seed.append({"role": "user", "content": prompt})
         else:
             seed = [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ]
             seed, project_doc = inject_project_instructions(source, seed)
@@ -531,7 +557,7 @@ class AtomicL1Runtime:
                         else None
                     ),
                     max_turns=self.config.max_iterations,
-                    tool_execution="sequential",
+                    tool_execution="parallel" if self.config.dynamic_workflow else "sequential",
                     persist_context_transform=self.config.compression_enabled,
                     cancel=self._run_cancel,
                 ),
@@ -539,7 +565,7 @@ class AtomicL1Runtime:
                 initial_messages=initial_messages,
             )
             state.messages = [
-                {"role": "system", "content": self.system_prompt},
+                {"role": "system", "content": system_prompt},
                 *[agent_message_to_dict(message) for message in final.messages],
             ]
             state.context_tokens_estimated = estimate_messages_tokens(final.messages)

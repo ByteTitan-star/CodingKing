@@ -261,3 +261,707 @@ body {
     transition: none;
   }
 }
+
+/* ── session sidebar ─────────────────────────────────────────────────── */
+
+.session-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 224px;
+  flex-shrink: 0;
+  padding: 10px 8px;
+  gap: 4px;
+  background: var(--surface);
+}
+.new-session-btn {
+  justify-content: flex-start;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13.5px;
+}
+.workspace-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.session-section-title {
+  padding: 10px 10px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.session-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+.session-row:hover {
+  background: var(--surface-2);
+}
+.session-row.active {
+  background: var(--accent-soft);
+}
+.session-prompt {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-row.active .session-prompt {
+  color: var(--accent);
+  font-weight: 500;
+}
+.session-meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* ── keyboard hints & small buttons ──────────────────────────────────── */
+
+.kbd-hint {
+  font-size: 11px;
+  color: currentColor;
+  opacity: 0.55;
+  margin-left: 2px;
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+
+/* ── conversation additions ──────────────────────────────────────────── */
+
+.chat-role-user {
+  text-align: right;
+}
+.user-msg {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 14.5px;
+  line-height: 1.65;
+  background: var(--surface-2);
+  border-radius: 14px 14px 4px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.reply-card {
+  padding: 12px 16px;
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+.stream-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: pulse 1s ease infinite;
+}
+
+/* markdown */
+.md {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.md-p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.md-h1,
+.md-h2,
+.md-h3,
+.md-h4 {
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md-h1 {
+  font-size: 19px;
+}
+.md-h2 {
+  font-size: 17px;
+}
+.md-h3 {
+  font-size: 15.5px;
+}
+.md-h4 {
+  font-size: 14.5px;
+}
+.md-code {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.md-fence {
+  border-radius: 10px;
+}
+.md-list {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.md-ol {
+  list-style: decimal;
+}
+.md ul.md-list {
+  list-style: disc;
+}
+.md-quote {
+  margin: 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-2);
+}
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+.md a {
+  color: var(--accent);
+}
+
+/* status lines inside the conversation */
+.status-line {
+  font-size: 12.5px;
+  color: var(--text-3);
+  padding: 1px 2px;
+}
+.status-warn {
+  color: var(--warn);
+}
+.status-ok {
+  color: var(--ok);
+}
+
+/* ── tool group (collapsible trace) ──────────────────────────────────── */
+
+.tool-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.tool-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: left;
+}
+.tool-group-head:hover {
+  background: var(--surface-2);
+}
+.tool-group-title {
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.tool-group-count {
+  color: var(--text-3);
+}
+.tool-group-errors {
+  color: var(--err);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.tool-group-last {
+  color: var(--text-3);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-group-body {
+  border-top: 1px solid var(--border);
+  padding: 6px 0;
+}
+.tool-item {
+  padding: 6px 12px;
+}
+.tool-item + .tool-item {
+  border-top: 1px dashed var(--border);
+}
+.tool-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.tool-item-name {
+  font-weight: 500;
+  color: var(--text);
+}
+.tool-item-status {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.tool-args {
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tool-arg-row {
+  display: grid;
+  grid-template-columns: minmax(60px, auto) 1fr;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.tool-arg-key {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text-3);
+}
+.tool-arg-val {
+  color: var(--text-2);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.tool-preview {
+  margin: 5px 0 0;
+  padding: 8px 10px;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--surface-2);
+  border-radius: 8px;
+  color: var(--text-2);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── plan card (todo list) ───────────────────────────────────────────── */
+
+.plan-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 14px;
+}
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.plan-count {
+  font-weight: 500;
+  color: var(--text-3);
+}
+.plan-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.plan-item.active {
+  color: var(--text);
+  font-weight: 500;
+}
+.plan-mark {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  align-self: center;
+}
+.plan-mark.progress {
+  color: var(--accent);
+}
+.plan-mark.done {
+  color: var(--ok);
+}
+.plan-title-done {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
+
+/* ── approval card ───────────────────────────────────────────────────── */
+
+.approval-card {
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+}
+.approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.approval-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.approval-tool {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.approval-reason {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ── context meter ───────────────────────────────────────────────────── */
+
+.ctx-meter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: default;
+}
+.ctx-bar {
+  width: 72px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.ctx-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.ctx-label {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.ctx-comp {
+  color: var(--warn);
+}
+
+/* ── banners ─────────────────────────────────────────────────────────── */
+
+.fail-banner,
+.done-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+}
+.fail-text {
+  font-size: 13.5px;
+  min-width: 0;
+  flex: 1 1 240px;
+  line-height: 1.55;
+}
+.done-text {
+  flex: 1 1 240px;
+  min-width: 0;
+  line-height: 1.55;
+}
+
+/* ── example chips ───────────────────────────────────────────────────── */
+
+.example-chip {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.example-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── checkpoints ─────────────────────────────────────────────────────── */
+
+.checkpoint-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 9px 12px;
+}
+.checkpoint-main {
+  min-width: 0;
+  flex: 1;
+}
+.checkpoint-path {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.checkpoint-meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* ── diff stats ──────────────────────────────────────────────────────── */
+
+.diff-stats {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* ── conversation header (session title bar) ──────────────────────────── */
+
+.conv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.conv-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── work summary bar (elapsed time, collapsible trace) ──────────────── */
+
+.work-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.work-summary:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.work-summary-meta {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+/* ── inline diff summary ─────────────────────────────────────────────── */
+
+.diff-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.diff-inline-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.diff-inline-add {
+  color: var(--ok);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.diff-inline-del {
+  color: var(--err);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ── composer card with toolbar ──────────────────────────────────────── */
+
+.composer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.composer-input:focus {
+  outline: none;
+}
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.composer-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.composer-tool-icon {
+  font-size: 13px;
+  opacity: 0.8;
+}
+.composer-select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 6px;
+}
+.composer-select:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.composer-select:focus {
+  outline: none;
+}
+.send-round {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: none;
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+.send-round:not(:disabled):hover {
+  opacity: 0.85;
+}
+.send-round:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ── session list enhancements ───────────────────────────────────────── */
+
+.session-search {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  padding: 6px 9px;
+  margin: 2px 0 4px;
+}
+.session-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.session-search-toggle {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.session-search-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.session-group-title {
+  padding: 8px 10px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.session-running-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #3b82f6;
+  margin-right: 6px;
+  animation: pulse 1.6s ease infinite;
+  vertical-align: 1px;
+}

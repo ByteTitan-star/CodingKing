@@ -42,6 +42,7 @@ class OpenAICompatProvider:
                 base_url=settings.openai_base_url,
                 model=settings.model,
                 disable_thinking=bool(settings.disable_thinking),
+                reasoning_effort=getattr(settings, "reasoning_effort", None),
             ),
             client=client,
             prefer_stream=prefer_stream,

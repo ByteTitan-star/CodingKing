@@ -15,6 +15,12 @@ from coderking_llm.openai_stream import api_error_detail, complete_chat_streamin
 from coderking_llm.provider import LLMResponse, ToolCall
 from coderking_llm.retry import RetryPolicy, retry_async
 
+_REASONING_KEYS = frozenset({"thinking", "enable_thinking", "reasoning_effort"})
+
+
+def _has_reasoning_keys(payload: dict[str, Any]) -> bool:
+    return any(key in payload for key in _REASONING_KEYS)
+
 
 @dataclass(frozen=True)
 class OpenAICompatConfig:
@@ -22,8 +28,16 @@ class OpenAICompatConfig:
     base_url: str
     model: str
     disable_thinking: bool = False
+    reasoning_effort: str | None = None
     temperature: float = 0.2
     max_tokens: int = 4096
+
+    @property
+    def thinking_off(self) -> bool:
+        """Effective thinking switch — explicit effort wins over the legacy flag."""
+        if self.reasoning_effort is not None:
+            return self.reasoning_effort == "off"
+        return self.disable_thinking
 
 
 class OpenAICompatProvider:
@@ -99,7 +113,12 @@ class OpenAICompatProvider:
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
         }
-        if self.config.disable_thinking:
+        if self.config.reasoning_effort not in (None, "off"):
+            effort = self.config.reasoning_effort
+            payload["reasoning_effort"] = effort
+            payload["thinking"] = {"type": "enabled"}
+            payload["enable_thinking"] = True
+        elif self.config.thinking_off:
             payload["thinking"] = {"type": "disabled"}
             payload["enable_thinking"] = False
         return payload
@@ -116,10 +135,9 @@ class OpenAICompatProvider:
             response = await await_with_abort(
                 client.post(url, headers=headers, json=payload), should_abort
             )
-            if response.status_code >= 400 and self.config.disable_thinking:
-                clean = dict(payload)
-                clean.pop("thinking", None)
-                clean.pop("enable_thinking", None)
+            if response.status_code >= 400 and _has_reasoning_keys(payload):
+                # backend rejected the reasoning params — retry once without them
+                clean = {k: v for k, v in payload.items() if k not in _REASONING_KEYS}
                 response = await await_with_abort(
                     client.post(url, headers=headers, json=clean), should_abort
                 )

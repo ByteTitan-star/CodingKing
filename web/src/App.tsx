@@ -59,6 +59,8 @@ const TOOL_META: Record<string, string> = {
   git: "Git",
   abort: "停止任务",
   interrupt: "停止任务",
+  agent: "子代理",
+  plan: "工作计划",
 };
 
 function toolLabel(name: string): string {
@@ -226,7 +228,7 @@ type ToolCall = {
 type Block =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string; streaming: boolean }
-  | { kind: "tools"; id: string; calls: ToolCall[] }
+  | { kind: "tools"; id: string; calls: ToolCall[]; subagent?: string }
   | { kind: "status"; id: string; text: string; tone: "info" | "warn" | "ok" };
 
 function flushStream(blocks: Block[]): Block[] {
@@ -263,11 +265,39 @@ function foldEvent(blocks: Block[], ev: AgentEvent, key: string): Block[] {
         arguments: ev.payload.arguments as Record<string, unknown> | undefined,
         preview: ev.payload.preview === undefined ? undefined : String(ev.payload.preview),
       };
+      const subagent = ev.payload.subagent === undefined ? undefined : String(ev.payload.subagent);
       const tail = next[next.length - 1];
-      if (tail?.kind === "tools" && tail.calls.length < 50) {
+      if (tail?.kind === "tools" && tail.calls.length < 50 && tail.subagent === subagent) {
         return [...next.slice(0, -1), { ...tail, calls: [...tail.calls, call] }];
       }
-      return [...next, { kind: "tools", id: `tools-${key}`, calls: [call] }];
+      return [...next, { kind: "tools", id: `tools-${key}`, calls: [call], subagent }];
+    }
+    case "subagent_start":
+      return [
+        ...blocks,
+        {
+          kind: "status",
+          id: key,
+          text: `子代理启动 · ${String(ev.payload.description ?? "")}（${String(ev.payload.agent_type ?? "")}）`,
+          tone: "info",
+        },
+      ];
+    case "subagent_end": {
+      const ok = Boolean(ev.payload.ok);
+      const desc = String(ev.payload.description ?? "");
+      const calls = Number(ev.payload.tool_calls ?? 0);
+      const summary = String(ev.payload.summary ?? "").slice(0, 120);
+      return [
+        ...blocks,
+        {
+          kind: "status",
+          id: key,
+          text: ok
+            ? `子代理完成 · ${desc} · ${calls} 次工具调用 · ${summary}`
+            : `子代理失败 · ${desc} · ${summary}`,
+          tone: ok ? "ok" : "warn",
+        },
+      ];
     }
     case "approval_required":
       return [
@@ -369,11 +399,20 @@ function ToolGroup({ block }: { block: Extract<Block, { kind: "tools" }> }) {
   const errors = block.calls.filter((c) => c.status === "error").length;
   const last = block.calls[block.calls.length - 1];
   return (
-    <div className="tool-group">
+    <div className={`tool-group ${block.subagent ? "tool-group-subagent" : ""}`}>
       <button className="tool-group-head" onClick={() => setOpen(!open)} type="button">
         <IconChevron open={open} />
         <span className="tool-group-title">
-          工具调用 <span className="tool-group-count">· {block.calls.length}</span>
+          {block.subagent ? (
+            <>
+              <span className="tool-group-sub-badge">子代理</span> {block.subagent}{" "}
+              <span className="tool-group-count">· {block.calls.length}</span>
+            </>
+          ) : (
+            <>
+              工具调用 <span className="tool-group-count">· {block.calls.length}</span>
+            </>
+          )}
         </span>
         {errors > 0 ? <span className="tool-group-errors">{errors} 失败</span> : null}
         {!open && last ? (
